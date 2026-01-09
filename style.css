@@ -1,0 +1,152 @@
+:root {
+  --bg: #071a12;
+  --fg: #ededed;
+  --muted: #cccccc;
+  --accent: #238f4a;
+  --panel: rgba(22, 27, 34, 0.9);
+  --border: rgba(255, 255, 255, 0.12);
+  --hover: rgba(255, 255, 255, 0.08);
+  --active: rgba(35, 143, 74, 0.25);
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: system-ui, sans-serif;
+  user-select: none;
+}
+
+#canvas-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+  cursor: crosshair;
+}
+
+.toolbar-container {
+  position: fixed;
+  bottom: 20px;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  pointer-events: none; /* Let clicks pass through container */
+  z-index: 100;
+}
+
+.toolbar {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 16px;
+  display: flex;
+  gap: 12px;
+  pointer-events: auto; /* Catch clicks on toolbar */
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+
+.tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 8px 12px;
+  min-width: 60px;
+  transition: all 0.2s;
+}
+
+.tool-btn i {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+
+.tool-btn span {
+  font-size: 12px;
+}
+
+.tool-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.tool-btn.active {
+  background: var(--active);
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.separator {
+  width: 1px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* Page controls for whiteboard */
+.page-controls {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+  color: var(--fg);
+}
+
+.action-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  pointer-events: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.icon-only-btn {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  padding: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-only-btn:hover {
+  background: var(--hover);
+}
+
+/* Color picker popover (simple) */
+.color-picker {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.color-swatch.active {
+  border-color: white;
+  transform: scale(1.2);
+}

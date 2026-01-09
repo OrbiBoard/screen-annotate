@@ -1,0 +1,24 @@
+{
+  "name": "screen-annotate",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OrbiBoard/screen-annotate.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/OrbiBoard/screen-annotate/issues"
+  },
+  "homepage": "https://github.com/OrbiBoard/screen-annotate#readme",
+  "description": "",
+  "dependencies": {
+    "perfect-freehand": "^1.2.2",
+    "remixicon": "^4.8.0"
+  }
+}

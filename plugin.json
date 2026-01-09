@@ -1,0 +1,13 @@
+{
+  "id": "screen-annotate",
+  "name": "屏幕批注",
+  "version": "1.0.0",
+  "author": "OrbiBoard",
+  "icon": "ri-pencil-ruler-2-line",
+  "description": "基于 Perfect Freehand 的屏幕批注与白板工具。",
+  "enabled": true,
+  "actions": [
+    { "id": "openAnnotate", "icon": "ri-edit-line", "text": "打开批注", "target": "openAnnotate" },
+    { "id": "openWhiteboard", "icon": "ri-artboard-line", "text": "打开白板", "target": "openWhiteboard" }
+  ]
+}
