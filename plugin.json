@@ -5,6 +5,9 @@
   "author": "OrbiBoard",
   "icon": "ri-pencil-ruler-2-line",
   "description": "基于 Perfect Freehand 的屏幕批注与白板工具。",
+  "npmDependencies": {
+    "perfect-freehand": "^1.2.0"
+  },
   "enabled": true,
   "actions": [
     { "id": "openAnnotate", "icon": "ri-edit-line", "text": "打开批注", "target": "openAnnotate" },

@@ -4,10 +4,21 @@ const path = require('path');
 let annotateWindow = null;
 let whiteboardWindow = null;
 
+// Helper to remove listeners to avoid duplicates on reload
+function cleanupListeners() {
+  ipcMain.removeAllListeners('annotate-set-ignore-mouse-events');
+  ipcMain.removeAllListeners('annotate-close');
+  ipcMain.removeAllListeners('annotate-save-image');
+}
+
 module.exports = {
-  onload(plugin) {
+  init(plugin) {
     console.log('[ScreenAnnotate] Plugin loaded');
-    // Register IPC handlers if needed
+    
+    // Ensure clean state
+    cleanupListeners();
+
+    // Register IPC handlers
     ipcMain.on('annotate-set-ignore-mouse-events', (event, ignore, options) => {
       const win = BrowserWindow.fromWebContents(event.sender);
       if (win) {
@@ -37,7 +48,7 @@ module.exports = {
     });
   },
 
-  actions: {
+  functions: {
     openAnnotate() {
       console.log('[ScreenAnnotate] openAnnotate called');
       if (annotateWindow) {
@@ -100,11 +111,12 @@ module.exports = {
       whiteboardWindow.on('closed', () => {
         whiteboardWindow = null;
       });
-    }
-  },
+    },
 
-  unload() {
-    if (annotateWindow) annotateWindow.close();
-    if (whiteboardWindow) whiteboardWindow.close();
+    disabled() {
+      if (annotateWindow) annotateWindow.close();
+      if (whiteboardWindow) whiteboardWindow.close();
+      cleanupListeners();
+    }
   }
 };

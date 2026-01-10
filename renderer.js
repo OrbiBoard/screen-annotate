@@ -227,7 +227,8 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  if (currentTool === 'pen' || (currentTool === 'eraser' && eraserType === 'point')) { [point];
+  if (currentTool === 'pen' || (currentTool === 'eraser' && eraserType === 'point')) {
+    currentPoints = [point];
   }
   
   // Select logic (hit test) would go here
