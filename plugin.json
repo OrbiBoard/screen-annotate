@@ -10,7 +10,17 @@
   },
   "enabled": true,
   "actions": [
-    { "id": "openAnnotate", "icon": "ri-edit-line", "text": "打开批注", "target": "openAnnotate" },
-    { "id": "openWhiteboard", "icon": "ri-artboard-line", "text": "打开白板", "target": "openWhiteboard" }
+    {
+      "id": "openAnnotate",
+      "icon": "ri-edit-line",
+      "text": "打开批注",
+      "target": "openAnnotate"
+    },
+    {
+      "id": "openWhiteboard",
+      "icon": "ri-artboard-line",
+      "text": "打开白板",
+      "target": "openWhiteboard"
+    }
   ]
 }
