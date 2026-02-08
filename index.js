@@ -8,7 +8,9 @@ let whiteboardWindow = null;
 function cleanupListeners() {
   ipcMain.removeAllListeners('annotate-set-ignore-mouse-events');
   ipcMain.removeAllListeners('annotate-close');
+  ipcMain.removeAllListeners('annotate-minimize');
   ipcMain.removeAllListeners('annotate-save-image');
+  ipcMain.removeAllListeners('annotate-insert-media');
 }
 
 module.exports = {
@@ -30,6 +32,11 @@ module.exports = {
       const win = BrowserWindow.fromWebContents(event.sender);
       if (win) win.close();
     });
+
+    ipcMain.on('annotate-minimize', (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win) win.minimize();
+    });
     
     ipcMain.on('annotate-save-image', async (event, dataUrl) => {
         const win = BrowserWindow.fromWebContents(event.sender);
@@ -44,6 +51,32 @@ module.exports = {
             require('fs').writeFile(filePath, base64Data, 'base64', (err) => {
                 if (err) console.error(err);
             });
+        }
+    });
+
+    ipcMain.on('annotate-insert-media', async (event, type) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (type === 'file') {
+            const { filePaths } = await dialog.showOpenDialog(win, {
+                title: '选择文件',
+                properties: ['openFile'],
+                filters: [
+                    { name: 'Media', extensions: ['jpg', 'png', 'gif', 'mp3', 'mp4', 'webm'] },
+                    { name: 'All Files', extensions: ['*'] }
+                ]
+            });
+            if (filePaths && filePaths.length > 0) {
+                // Send back the path to renderer
+                event.reply('annotate-insert-media-reply', { type, path: filePaths[0] });
+                console.log('Selected file:', filePaths[0]);
+            }
+        } else if (type === 'browser') {
+            require('electron').shell.openExternal('https://www.google.com');
+        } else if (type === 'link') {
+             // Just open a default link for now or handle in renderer prompt
+             // If we want to insert a link object, renderer should handle the prompt.
+             // If this IPC is just for triggering external actions:
+             event.reply('annotate-insert-media-reply', { type, path: null }); 
         }
     });
   },
@@ -95,8 +128,7 @@ module.exports = {
       }
 
       whiteboardWindow = new BrowserWindow({
-        width: 1000,
-        height: 700,
+        fullscreen: true,
         frame: false,
         backgroundColor: '#071a12',
         webPreferences: {

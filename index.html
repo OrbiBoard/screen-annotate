@@ -9,9 +9,56 @@
 <body>
   <canvas id="canvas-layer"></canvas>
 
-  <div class="action-controls" id="left-controls" style="display: none;">
-    <button class="icon-only-btn" id="btn-save" title="Save"><i class="ri-save-line"></i></button>
-    <button class="icon-only-btn" id="btn-close-wb" title="Close"><i class="ri-close-line"></i></button>
+  <!-- Tool Settings Popup -->
+  <div id="tool-settings-popup" class="tool-settings-popup" style="display: none;">
+    <div id="pen-settings" class="settings-group" style="display: none;">
+       <div class="color-options">
+         <div class="color-swatch" style="background: #ffffff" data-color="#ffffff"></div>
+         <div class="color-swatch" style="background: #ff4d4f" data-color="#ff4d4f"></div>
+         <div class="color-swatch" style="background: #fadb14" data-color="#fadb14"></div>
+         <div class="color-swatch" style="background: #52c41a" data-color="#52c41a"></div>
+         <div class="color-swatch" style="background: #1890ff" data-color="#1890ff"></div>
+       </div>
+       <div class="separator-h"></div>
+       <div class="slider-container">
+         <span>粗细: </span>
+         <input type="range" id="pen-size-slider" min="1" max="50" value="4">
+         <span id="pen-size-display">4</span>
+       </div>
+       <div class="slider-container">
+         <span>笔锋: </span>
+         <label class="switch">
+           <input type="checkbox" id="pen-taper-toggle">
+           <span class="slider round"></span>
+         </label>
+       </div>
+    </div>
+    <div id="eraser-settings" class="settings-group" style="display: none;">
+       <div class="eraser-options">
+         <div class="eraser-preset" data-size="50" style="width: 20px; height: 20px;"></div>
+         <div class="eraser-preset active" data-size="100" style="width: 30px; height: 30px;"></div>
+         <div class="eraser-preset" data-size="200" style="width: 40px; height: 40px;"></div>
+       </div>
+       <div class="separator-h"></div>
+       <button class="text-btn small clear-page-btn" id="btn-clear-page">
+         <i class="ri-delete-bin-line"></i> 清页
+       </button>
+    </div>
+  </div>
+
+  <div class="bottom-controls left" id="left-controls" style="display: none;">
+    <button class="tool-btn" id="btn-collapse">
+      <i class="ri-arrow-down-line"></i>
+      <span>收起</span>
+    </button>
+    <button class="tool-btn" id="btn-save-wb">
+      <i class="ri-save-line"></i>
+      <span>保存</span>
+    </button>
+    <button class="tool-btn" id="btn-insert-media">
+      <i class="ri-add-line"></i>
+      <span>插入</span>
+    </button>
   </div>
 
   <div class="toolbar-container">
@@ -20,11 +67,86 @@
     </div>
   </div>
 
-  <div class="page-controls" id="page-controls" style="display: none;">
-    <button class="icon-only-btn" id="btn-prev-page"><i class="ri-arrow-left-s-line"></i></button>
-    <span id="page-indicator">1 / 1</span>
-    <button class="icon-only-btn" id="btn-next-page"><i class="ri-arrow-right-s-line"></i></button>
-    <button class="icon-only-btn" id="btn-add-page"><i class="ri-add-line"></i></button>
+  <div class="bottom-controls right" id="page-controls" style="display: none;">
+    <button class="tool-btn" id="btn-insert-page">
+      <i class="ri-add-circle-line"></i>
+      <span>插页</span>
+    </button>
+    <button class="tool-btn" id="btn-prev-page">
+      <i class="ri-arrow-left-s-line"></i>
+      <span>上一页</span>
+    </button>
+    <div class="tool-btn" id="page-indicator-btn">
+      <span id="page-indicator-text" class="indicator-top">1 / 1</span>
+      <span class="indicator-bottom">页码</span>
+    </div>
+    <button class="tool-btn" id="btn-next-page">
+      <i class="ri-arrow-right-s-line"></i>
+      <span>下一页</span>
+    </button>
+  </div>
+
+  <!-- Page Preview Popup (Vertical list above page controls) -->
+  <div id="page-preview-popup" class="page-preview-popup" style="display: none;">
+    <!-- Header hidden by CSS per request -->
+    <div class="preview-header" style="display: none;">
+      <span>页面预览</span>
+      <button class="icon-only-btn" id="btn-close-preview"><i class="ri-close-line"></i></button>
+    </div>
+    <div id="page-list" class="page-list-vertical"></div>
+  </div>
+
+  <!-- Selection Toolbar -->
+  <div id="selection-toolbar" class="selection-toolbar" style="display: none;">
+    <button class="tool-btn small" id="btn-sel-clone">
+      <i class="ri-file-copy-line"></i>
+      <span>克隆</span>
+    </button>
+    <button class="tool-btn small" id="btn-sel-clone-page">
+      <i class="ri-file-add-line"></i>
+      <span>新页克隆</span>
+    </button>
+    <button class="tool-btn small" id="btn-sel-adjust">
+      <i class="ri-settings-line"></i>
+      <span>调整</span>
+    </button>
+    <button class="tool-btn small" id="btn-sel-delete">
+      <i class="ri-delete-bin-line"></i>
+      <span>删除</span>
+    </button>
+  </div>
+
+  <!-- Adjustment Popup -->
+  <div id="adjust-popup" class="tool-settings-popup" style="display: none;">
+     <div class="settings-group">
+       <div class="color-options">
+         <div class="color-swatch adjust-swatch" style="background: #ffffff" data-color="#ffffff"></div>
+         <div class="color-swatch adjust-swatch" style="background: #ff4d4f" data-color="#ff4d4f"></div>
+         <div class="color-swatch adjust-swatch" style="background: #fadb14" data-color="#fadb14"></div>
+         <div class="color-swatch adjust-swatch" style="background: #52c41a" data-color="#52c41a"></div>
+         <div class="color-swatch adjust-swatch" style="background: #1890ff" data-color="#1890ff"></div>
+       </div>
+       <div class="slider-container">
+         <span>粗细: </span>
+         <input type="range" id="adjust-size-slider" min="1" max="50" value="4">
+         <span id="adjust-size-display">4</span>
+       </div>
+     </div>
+  </div>
+
+  <!-- Insert Menu Popup -->
+  <div id="insert-menu-popup" class="tool-settings-popup" style="display: none;">
+    <div class="settings-group">
+       <button class="text-btn small" id="btn-insert-file" style="justify-content: flex-start;">
+         <i class="ri-file-line"></i> 本地文件 (图片/音视频)
+       </button>
+       <button class="text-btn small" id="btn-insert-browser" style="justify-content: flex-start;">
+         <i class="ri-global-line"></i> 网页浏览器
+       </button>
+       <button class="text-btn small" id="btn-insert-link" style="justify-content: flex-start;">
+         <i class="ri-link"></i> 超链接
+       </button>
+    </div>
   </div>
 
   <script src="./renderer.js"></script>

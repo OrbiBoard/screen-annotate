@@ -17,5 +17,7 @@
   },
   "homepage": "https://github.com/OrbiBoard/screen-annotate#readme",
   "description": "",
-  "dependencies": {}
+  "dependencies": {
+    "perfect-freehand": "^1.2.2"
+  }
 }
