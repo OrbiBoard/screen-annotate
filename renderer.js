@@ -1,83 +1,116 @@
-const { ipcRenderer, clipboard, nativeImage } = require('electron');
+const { ipcRenderer } = require('electron');
 const { getStroke } = require('perfect-freehand');
-
-// --- Configuration & State ---
-const urlParams = new URLSearchParams(window.location.search);
-const MODE = urlParams.get('mode') || 'whiteboard'; // 'annotate' or 'whiteboard'
-
-const canvas = document.getElementById('canvas-layer');
-const ctx = canvas.getContext('2d');
-const toolbar = document.getElementById('main-toolbar');
-const pageControls = document.getElementById('page-controls');
-const leftControls = document.getElementById('left-controls');
-const toolSettingsPopup = document.getElementById('tool-settings-popup');
-const penSettings = document.getElementById('pen-settings');
-const eraserSettings = document.getElementById('eraser-settings');
-const pagePreviewPopup = document.getElementById('page-preview-popup');
-const pageList = document.getElementById('page-list');
-const selectionToolbar = document.getElementById('selection-toolbar');
-const adjustPopup = document.getElementById('adjust-popup');
-const insertMenuPopup = document.getElementById('insert-menu-popup');
-
-// State
-let pages = [[]]; // Array of strokes for each page
-let pageSnapshots = []; // Cache of dataURLs for previews
-let currentPageIndex = 0;
-let redoStack = []; // For current page
-let isDrawing = false;
-let currentPoints = [];
-let selectedStrokeIndex = -1; // -1 means none, or we can use array for multi-select
-let selectedStrokeIndices = []; // Array of indices for multi-selection
-let dragStart = null;
-let lassoPoints = []; // For Lasso Selection
-let mousePos = { x: -100, y: -100 }; // For Eraser Cursor
-let isMenuOpen = false;
-let isMovingSelection = false;
-let isResizingSelection = false;
-let resizeHandleIndex = -1; // 0: TL, 1: TR, 2: BR, 3: BL
-let selectionBounds = null; // {x, y, w, h}
-let originalSelectionStrokes = null; // Snapshot for resizing/moving
-
-// Tool State
-let currentTool = MODE === 'annotate' ? 'mouse' : 'pen'; // 'pen', 'eraser', 'select', 'pan', 'mouse'
-let penColor = '#ffffff';
-let penSize = 4;
-let penTaper = false; // Toggle for pen pressure/taper
-let eraserType = 'point'; // 'stroke' or 'point'
-let eraserSize = 100;
-
-// Camera (Pan/Zoom)
-let camera = { x: 0, y: 0, z: 1 };
-let isPanning = false;
-let panStart = { x: 0, y: 0 };
+const state = require('./modules/state');
+const utils = require('./modules/utils');
+const canvasModule = require('./modules/canvas');
+const selection = require('./modules/selection');
+const objects = require('./modules/objects');
+const ui = require('./modules/ui');
 
 // --- UI Initialization ---
 
 function initUI() {
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
+  canvasModule.resizeCanvas();
+  window.addEventListener('resize', canvasModule.resizeCanvas);
   window.addEventListener('pointermove', (e) => {
-    mousePos = { x: e.clientX, y: e.clientY };
-    if (!isDrawing && currentTool === 'eraser') {
-      renderCanvas(); // Redraw cursor
+    state.mousePos = { x: e.clientX, y: e.clientY };
+    if (!state.isDrawing && state.currentTool === 'eraser') {
+      canvasModule.renderCanvas(); // Redraw cursor
     }
   });
 
-  if (MODE === 'annotate') {
+  if (state.MODE === 'annotate') {
     setupAnnotateUI();
     // Transparent window needs special mouse handling
     setupMousePassthrough();
   } else {
     setupWhiteboardUI();
-    pageControls.style.display = 'flex';
-    leftControls.style.display = 'flex';
-    canvas.style.backgroundColor = 'var(--bg)'; // Opaque background for whiteboard
+    ui.pageControls.style.display = 'flex';
+    ui.leftControls.style.display = 'flex';
+    canvasModule.canvas.style.backgroundColor = 'transparent'; 
+    // Fix for Issue 1: Set initial background
+    if (state.pageBackgrounds[state.currentPageIndex]) {
+        document.documentElement.style.setProperty('--bg', state.pageBackgrounds[state.currentPageIndex]);
+    } else {
+        document.body.style.backgroundColor = 'var(--bg)'; 
+    }
   }
 
-  renderToolbar();
-  renderCanvas();
-  bindSettingsUI();
-  updatePageIndicator();
+  ui.renderToolbar(handleToolClick);
+  canvasModule.renderCanvas();
+  
+  // Bind UI callbacks
+  ui.bindSettingsUI({
+      onPrevPage: () => {
+        if (state.currentPageIndex > 0) {
+            ui.updateCurrentPageSnapshot();
+            state.currentPageIndex--;
+            state.redoStack = [];
+            
+            // Fix for Issue 1: Sync background
+            if (state.pageBackgrounds[state.currentPageIndex]) {
+                document.documentElement.style.setProperty('--bg', state.pageBackgrounds[state.currentPageIndex]);
+            }
+            
+            ui.updatePageIndicator();
+            canvasModule.renderCanvas();
+            objects.updateDOMObjects();
+            ui.updatePagePreviewIfOpen();
+        }
+      },
+      onNextPage: () => {
+        if (state.currentPageIndex === state.pages.length - 1) {
+            ui.updateCurrentPageSnapshot();
+            state.pages.push([]);
+            // Fix for Issue 1: New page inherits current background or default? Usually default or current.
+            // Let's inherit current for continuity.
+            const currentBg = state.pageBackgrounds[state.currentPageIndex] || 'var(--bg)';
+            state.pageBackgrounds.push(currentBg);
+        } else {
+            ui.updateCurrentPageSnapshot();
+        }
+        state.currentPageIndex++;
+        state.redoStack = [];
+        
+        // Fix for Issue 1: Sync background
+        if (state.pageBackgrounds[state.currentPageIndex]) {
+            document.documentElement.style.setProperty('--bg', state.pageBackgrounds[state.currentPageIndex]);
+        }
+        
+        ui.updatePageIndicator();
+        canvasModule.renderCanvas();
+        objects.updateDOMObjects();
+        ui.updatePagePreviewIfOpen();
+      },
+      onInsertPage: () => {
+        ui.updateCurrentPageSnapshot();
+        state.pages.splice(state.currentPageIndex + 1, 0, []);
+        state.pageSnapshots.splice(state.currentPageIndex + 1, 0, null);
+        
+        // Fix for Issue 1: Insert background
+        const currentBg = state.pageBackgrounds[state.currentPageIndex] || 'var(--bg)';
+        state.pageBackgrounds.splice(state.currentPageIndex + 1, 0, currentBg);
+        
+        state.currentPageIndex++;
+        state.redoStack = [];
+        
+        // Fix for Issue 1: Sync background
+        if (state.pageBackgrounds[state.currentPageIndex]) {
+            document.documentElement.style.setProperty('--bg', state.pageBackgrounds[state.currentPageIndex]);
+        }
+        
+        ui.updatePageIndicator();
+        canvasModule.renderCanvas();
+        objects.updateDOMObjects();
+        ui.updatePagePreviewIfOpen();
+      },
+      onSave: exportImage,
+      onDeletePage: deletePage,
+      applyAdjustment: applyAdjustment
+  });
+  
+  ui.updatePageIndicator();
+  objects.updateObjectInteraction(); 
 }
 
 function setupAnnotateUI() {
@@ -98,217 +131,41 @@ function setupMousePassthrough() {
   
   container.addEventListener('mouseleave', () => {
     // If we are in 'mouse' mode, we ignore mouse on the canvas area
-    if (currentTool === 'mouse') {
+    if (state.currentTool === 'mouse') {
       ipcRenderer.send('annotate-set-ignore-mouse-events', true, { forward: true });
     }
   });
 
   // Initial state
-  if (currentTool === 'mouse') {
+  if (state.currentTool === 'mouse') {
     ipcRenderer.send('annotate-set-ignore-mouse-events', true, { forward: true });
   }
 }
 
-function bindSettingsUI() {
-  // Color Picker
-  document.querySelectorAll('.color-swatch:not(.adjust-swatch)').forEach(swatch => {
-    swatch.onclick = (e) => {
-      penColor = e.target.dataset.color;
-      updateColorSelection();
-      // Keep menu open to adjust other settings
-    };
-  });
-
-  // Pen Size Slider
-  const penSizeSlider = document.getElementById('pen-size-slider');
-  if (penSizeSlider) {
-    penSizeSlider.oninput = (e) => {
-      penSize = parseInt(e.target.value);
-      document.getElementById('pen-size-display').textContent = penSize;
-    };
-  }
-
-  // Pen Taper Toggle
-  const penTaperToggle = document.getElementById('pen-taper-toggle');
-  if (penTaperToggle) {
-    penTaperToggle.onchange = (e) => {
-      penTaper = e.target.checked;
-    };
-  }
-
-  // Eraser Presets
-  document.querySelectorAll('.eraser-preset').forEach(preset => {
-    preset.onclick = (e) => {
-      eraserSize = parseInt(e.target.dataset.size);
-      updateEraserSelection();
-      // Don't close menu immediately for multiple choices
-    };
-  });
-
-  document.getElementById('btn-clear-page').onclick = () => {
-    pages[currentPageIndex] = [];
-    selectedStrokeIndices = [];
-    selectionBounds = null;
-    renderCanvas();
-    toolSettingsPopup.style.display = 'none';
-    isMenuOpen = false;
-  };
-
-  // Selection Toolbar
-  document.getElementById('btn-sel-delete').onclick = deleteSelection;
-  document.getElementById('btn-sel-clone').onclick = cloneSelection;
-  document.getElementById('btn-sel-clone-page').onclick = cloneSelectionToNewPage;
-  document.getElementById('btn-sel-adjust').onclick = openAdjustPopup;
-
-  // Adjust Popup
-  document.querySelectorAll('.adjust-swatch').forEach(swatch => {
-    swatch.onclick = (e) => {
-      const color = e.target.dataset.color;
-      applyAdjustment({ color });
-    };
-  });
-
-  const adjustSlider = document.getElementById('adjust-size-slider');
-  adjustSlider.oninput = (e) => {
-    const size = parseInt(e.target.value);
-    document.getElementById('adjust-size-display').textContent = size;
-    applyAdjustment({ size });
-  };
-
-  // Insert Media Menu
-  document.getElementById('btn-insert-media').onclick = (e) => {
-    if (insertMenuPopup.style.display === 'none') {
-        const rect = e.currentTarget.getBoundingClientRect();
-        insertMenuPopup.style.display = 'block';
-        // Position above the button
-        insertMenuPopup.style.left = `${rect.left}px`;
-        insertMenuPopup.style.bottom = `${window.innerHeight - rect.top + 10}px`;
-        insertMenuPopup.style.transform = 'none'; // Override centering
-    } else {
-        insertMenuPopup.style.display = 'none';
+// Zoom support
+window.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) {
+        e.preventDefault();
+        const zoomSpeed = 0.001;
+        const delta = -e.deltaY * zoomSpeed;
+        const newZoom = Math.min(Math.max(state.camera.z + delta, 0.1), 10);
+        
+        // Zoom towards mouse
+        // World before zoom
+        const wx = (e.clientX - state.camera.x) / state.camera.z;
+        const wy = (e.clientY - state.camera.y) / state.camera.z;
+        
+        state.camera.z = newZoom;
+        
+        // Adjust camera x/y to keep world point under mouse
+        state.camera.x = e.clientX - wx * newZoom;
+        state.camera.y = e.clientY - wy * newZoom;
+        
+        canvasModule.renderCanvas();
+        objects.updateDOMObjects();
+        require('./modules/ui').updateMinimap();
     }
-  };
-
-  document.getElementById('btn-insert-file').onclick = () => {
-      // Placeholder: Implement file selection logic
-      console.log('Insert File clicked');
-      ipcRenderer.send('annotate-insert-media', 'file'); // Assuming backend handler exists or will be added
-      insertMenuPopup.style.display = 'none';
-  };
-  document.getElementById('btn-insert-browser').onclick = () => {
-      console.log('Insert Browser clicked');
-      ipcRenderer.send('annotate-insert-media', 'browser');
-      insertMenuPopup.style.display = 'none';
-  };
-  document.getElementById('btn-insert-link').onclick = () => {
-      console.log('Insert Link clicked');
-      ipcRenderer.send('annotate-insert-media', 'link');
-      insertMenuPopup.style.display = 'none';
-  };
-
-  // Handle IPC Replies
-  ipcRenderer.on('annotate-insert-media-reply', (event, { type, path }) => {
-    if (type === 'file' && path) {
-        // Load image and add to page
-        const img = new Image();
-        img.onload = () => {
-            // Center image on screen (accounting for camera)
-            // World coordinates
-            const centerX = (window.innerWidth / 2 - camera.x) / camera.z;
-            const centerY = (window.innerHeight / 2 - camera.y) / camera.z;
-            
-            // Limit max size to 80% of screen
-            const maxWidth = (window.innerWidth * 0.8) / camera.z;
-            const maxHeight = (window.innerHeight * 0.8) / camera.z;
-            let w = img.width;
-            let h = img.height;
-            
-            const ratio = Math.min(maxWidth / w, maxHeight / h);
-            if (ratio < 1) {
-                w *= ratio;
-                h *= ratio;
-            }
-            
-            const imageObj = {
-                type: 'image',
-                img: img, // Store element directly (or source? element is faster for render)
-                src: path, // For serialization/cloning
-                x: centerX - w / 2,
-                y: centerY - h / 2,
-                w: w,
-                h: h
-            };
-            
-            pages[currentPageIndex].push(imageObj);
-            renderCanvas();
-        };
-        img.src = path; // Local file path works in Electron if webSecurity is false
-    }
-  });
-}
-
-function updateColorSelection() {
-  document.querySelectorAll('.color-swatch:not(.adjust-swatch)').forEach(swatch => {
-    if (swatch.dataset.color === penColor) {
-      swatch.style.borderColor = 'white';
-      swatch.style.transform = 'scale(1.2)';
-    } else {
-      swatch.style.borderColor = 'var(--border)';
-      swatch.style.transform = 'scale(1)';
-    }
-  });
-}
-
-function updateEraserSelection() {
-  document.querySelectorAll('.eraser-preset').forEach(preset => {
-    if (parseInt(preset.dataset.size) === eraserSize) {
-      preset.classList.add('active');
-    } else {
-      preset.classList.remove('active');
-    }
-  });
-}
-
-// --- Tools & Toolbar ---
-
-const TOOLS = {
-  annotate: [
-    { id: 'mouse', icon: 'ri-cursor-line', label: '鼠标' },
-    { id: 'pen', icon: 'ri-pencil-fill', label: '批注' },
-    { id: 'eraser', icon: 'ri-eraser-line', label: '橡皮' },
-    { id: 'select', icon: 'ri-cursor-fill', label: '套索选' },
-    { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
-    { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' },
-    { id: 'clear', icon: 'ri-delete-bin-line', label: '清页' },
-    { id: 'save', icon: 'ri-save-line', label: '保存' },
-    { id: 'close', icon: 'ri-close-circle-line', label: '关闭' }
-  ],
-  whiteboard: [
-    { id: 'select', icon: 'ri-cursor-fill', label: '选择' }, // Lasso
-    { id: 'pen', icon: 'ri-pencil-fill', label: '书写' },
-    { id: 'eraser', icon: 'ri-eraser-line', label: '橡皮' },
-    { id: 'pan', icon: 'ri-drag-move-line', label: '漫游' },
-    { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
-    { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' }
-  ]
-};
-
-function renderToolbar() {
-  toolbar.innerHTML = '';
-  
-  // Force full toolbar to avoid "Empty" issues
-  let toolSet = MODE === 'annotate' ? TOOLS.annotate : TOOLS.whiteboard;
-
-  toolSet.forEach(tool => {
-    const btn = document.createElement('button');
-    btn.className = `tool-btn ${currentTool === tool.id ? 'active' : ''}`;
-    btn.innerHTML = `<i class="${tool.icon}"></i><span>${tool.label}</span>`;
-    
-    btn.onclick = () => handleToolClick(tool.id);
-    
-    toolbar.appendChild(btn);
-  });
-}
+}, { passive: false });
 
 function handleToolClick(toolId) {
   if (toolId === 'close') {
@@ -324,9 +181,14 @@ function handleToolClick(toolId) {
     return;
   }
   if (toolId === 'clear') {
-    pages[currentPageIndex] = [];
-    renderCanvas();
-    renderToolbar(); 
+    // Clear only current strokes (fullscreen or page)
+    if (state.fullscreen.active) {
+        state.fullscreen.strokes = [];
+    } else {
+        state.pages[state.currentPageIndex] = [];
+    }
+    canvasModule.renderCanvas();
+    ui.renderToolbar(handleToolClick); 
     return;
   }
   if (toolId === 'save') {
@@ -336,824 +198,878 @@ function handleToolClick(toolId) {
 
   // Clear selection if switching tool
   if (toolId !== 'select') {
-    selectedStrokeIndices = [];
-    selectionBounds = null;
-    selectionToolbar.style.display = 'none';
-    adjustPopup.style.display = 'none';
+    state.selectedStrokeIndices = [];
+    state.selectionBounds = null;
+    document.getElementById('selection-toolbar').style.display = 'none';
+    document.getElementById('selection-overlay').style.display = 'none';
+    ui.adjustPopup.style.display = 'none';
   }
 
   // Double click menu logic
-  if (currentTool === toolId) {
+  if (state.currentTool === toolId) {
     if (toolId === 'pen') {
-      toggleToolMenu('pen');
+      ui.toggleToolMenu('pen');
       return;
     }
     if (toolId === 'eraser') {
-      toggleToolMenu('eraser');
+      ui.toggleToolMenu('eraser');
+      return;
+    }
+    if (toolId === 'pan') {
+      ui.toggleToolMenu('pan');
+      return;
+    }
+    if (toolId === 'shape') {
+      ui.toggleToolMenu('shape');
       return;
     }
   } else {
     // Switching tools, close menu
-    toolSettingsPopup.style.display = 'none';
-    isMenuOpen = false;
+    ui.toolSettingsPopup.style.display = 'none';
+    state.isMenuOpen = false;
   }
 
-  currentTool = toolId;
+  state.currentTool = toolId;
   
+  // Update interaction state for DOM objects
+  objects.updateObjectInteraction();
+
+  // Ensure fullscreen browser layer allows events
+  const fsBrowser = document.getElementById('fullscreen-browser-layer');
+  if (fsBrowser && fsBrowser.style.display !== 'none') {
+    fsBrowser.style.pointerEvents = 'auto';
+  }
+
   // Handle Mouse/Annotate switching for Transparent Window
-  if (MODE === 'annotate') {
-    if (currentTool === 'mouse') {
+  if (state.MODE === 'annotate') {
+    if (state.currentTool === 'mouse') {
        ipcRenderer.send('annotate-set-ignore-mouse-events', true, { forward: true });
     } else {
        ipcRenderer.send('annotate-set-ignore-mouse-events', false);
     }
   }
 
-  renderToolbar();
-  renderCanvas();
+  ui.renderToolbar(handleToolClick);
+  canvasModule.renderCanvas();
 }
 
-function toggleToolMenu(type) {
-  if (isMenuOpen && toolSettingsPopup.dataset.type === type) {
-    toolSettingsPopup.style.display = 'none';
-    isMenuOpen = false;
-  } else {
-    toolSettingsPopup.style.display = 'block';
-    toolSettingsPopup.dataset.type = type;
-    penSettings.style.display = type === 'pen' ? 'flex' : 'none';
-    eraserSettings.style.display = type === 'eraser' ? 'flex' : 'none';
-    isMenuOpen = true;
-    
-    if (type === 'pen') updateColorSelection();
-    if (type === 'eraser') updateEraserSelection();
-  }
-}
+// --- Canvas Interaction ---
 
-// --- Canvas Logic ---
-
-function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  renderCanvas();
-}
-
-function getPoint(e) {
-  return {
-    x: (e.clientX - camera.x) / camera.z,
-    y: (e.clientY - camera.y) / camera.z,
-    pressure: e.pressure || 0.5
-  };
-}
-
-canvas.addEventListener('pointerdown', (e) => {
-  if (currentTool === 'mouse') return;
+canvasModule.canvas.addEventListener('pointerdown', (e) => {
+  if (state.currentTool === 'mouse') return;
   if (e.button !== 0) return; // Only left click
   
   // Close menu if clicking on canvas
-  if (isMenuOpen) {
-    toolSettingsPopup.style.display = 'none';
-    isMenuOpen = false;
+  if (state.isMenuOpen) {
+    ui.toolSettingsPopup.style.display = 'none';
+    state.isMenuOpen = false;
   }
-  if (adjustPopup.style.display !== 'none') {
-    adjustPopup.style.display = 'none';
+  
+  // Hide Edge Pan Buttons
+  document.querySelectorAll('.edge-pan-btn').forEach(b => b.classList.remove('visible'));
+  
+  if (ui.adjustPopup.style.display !== 'none') {
+    ui.adjustPopup.style.display = 'none';
   }
-  if (insertMenuPopup.style.display !== 'none') {
-    insertMenuPopup.style.display = 'none';
+  if (ui.insertMenuPopup.style.display !== 'none') {
+    ui.insertMenuPopup.style.display = 'none';
   }
 
-  canvas.setPointerCapture(e.pointerId);
-  const point = getPoint(e);
+  canvasModule.canvas.setPointerCapture(e.pointerId);
+  const point = utils.getPoint(e);
   
-  if (currentTool === 'pan') {
-    isPanning = true;
-    panStart = { x: e.clientX, y: e.clientY };
-    isDrawing = true;
+  if (state.currentTool === 'pan') {
+    state.isPanning = true;
+    state.panStart = { x: e.clientX, y: e.clientY };
+    state.isDrawing = true;
     return;
   }
   
-  if (currentTool === 'select') {
+  if (state.currentTool === 'shape') {
+    state.isDrawing = true;
+    // For pending shape, we keep the start/end from step 1
+    if (!state.pendingShape) {
+        state.shapeStart = point;
+    }
+    return;
+  }
+  
+  if (state.currentTool === 'select') {
     // Check if hitting selection handles or body
-    if (selectionBounds) {
-      const handle = getHitHandle(point);
+    if (state.selectionBounds) {
+      const handle = utils.getHitHandle(point);
       if (handle !== -1) {
-        isResizingSelection = true;
-        resizeHandleIndex = handle;
-        dragStart = point;
-        originalSelectionStrokes = cloneStrokes(selectedStrokeIndices);
-        isDrawing = true;
+        state.isResizingSelection = true;
+        state.resizeHandleIndex = handle;
+        state.dragStart = point;
+        state.originalSelectionStrokes = selection.cloneStrokes(state.selectedStrokeIndices);
+        state.isDrawing = true;
         return;
       }
-      if (isPointInRect(point, selectionBounds)) {
-        isMovingSelection = true;
-        dragStart = point;
-        originalSelectionStrokes = cloneStrokes(selectedStrokeIndices);
-        isDrawing = true;
+      if (utils.isPointInRect(point, state.selectionBounds)) {
+        state.isMovingSelection = true;
+        state.dragStart = point;
+        state.originalSelectionStrokes = selection.cloneStrokes(state.selectedStrokeIndices);
+        state.isDrawing = true;
         return;
       }
+    }
+
+    // Hit test for Single Click Selection (Images/Objects/Strokes)
+    // Check in reverse order (topmost first)
+    const strokes = state.getActiveStrokes();
+    let hitIndex = -1;
+    
+    for (let i = strokes.length - 1; i >= 0; i--) {
+        const stroke = strokes[i];
+        if (['image', 'video', 'audio', 'browser', 'link'].includes(stroke.type)) {
+            // In fullscreen, video is not selectable this way (it's background)
+            // But if we support images on top of fullscreen video, this works.
+            if (point.x >= stroke.x && point.x <= stroke.x + stroke.w &&
+                point.y >= stroke.y && point.y <= stroke.y + stroke.h) {
+                hitIndex = i;
+                break;
+            }
+        } else if (stroke.type === 'pen') {
+            // Hit test for ink
+            if (!stroke.points || stroke.points.length < 2) continue;
+            
+            // 1. Fast Bounds Check
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const p of stroke.points) {
+                if (p.x < minX) minX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y > maxY) maxY = p.y;
+            }
+            
+            // Add thickness padding
+            const padding = (stroke.size || 5) / 2 + 10; // Half size + extra buffer
+            if (point.x < minX - padding || point.x > maxX + padding || 
+                point.y < minY - padding || point.y > maxY + padding) {
+                continue;
+            }
+            
+            // 2. Precise Check
+            const outline = getStroke(stroke.points, {
+                size: stroke.size,
+                thinning: stroke.taper ? 0.7 : 0,
+                smoothing: 0.5,
+                streamline: 0.5,
+                start: { taper: stroke.taper ? stroke.size : 0, easing: (t) => t },
+                end: { taper: stroke.taper ? stroke.size : 0, easing: (t) => t }
+            });
+            
+            // Convert to {x,y} for isPointInPolygon
+            const polygon = outline.map(p => ({ x: p[0], y: p[1] }));
+            
+            if (utils.isPointInPolygon(point, polygon)) {
+                hitIndex = i;
+                break;
+            }
+        }
+    }
+    
+    if (hitIndex !== -1) {
+        state.selectedStrokeIndices = [hitIndex];
+        selection.updateSelectionBounds();
+        selection.showSelectionToolbar();
+        state.isMovingSelection = true; 
+        state.dragStart = point;
+        state.originalSelectionStrokes = selection.cloneStrokes(state.selectedStrokeIndices);
+        state.isDrawing = true;
+        
+        canvasModule.renderCanvas();
+        return;
     }
 
     // Start new selection (Lasso)
-    lassoPoints = [point]; 
-    selectedStrokeIndices = [];
-    selectionBounds = null;
-    selectionToolbar.style.display = 'none';
-    isDrawing = true;
-    renderCanvas();
+    state.lassoPoints = [point]; 
+    state.selectedStrokeIndices = [];
+    state.selectionBounds = null;
+    document.getElementById('selection-toolbar').style.display = 'none';
+    state.isDrawing = true;
+    canvasModule.renderCanvas();
     return;
   }
 
-  if (currentTool === 'pen' || (currentTool === 'eraser' && eraserType === 'point')) {
-    isDrawing = true;
-    currentPoints = [point];
+  if (state.currentTool === 'pen' || (state.currentTool === 'eraser' && state.eraserType === 'point')) {
+    state.isDrawing = true;
+    if (state.currentTool === 'eraser') {
+        canvasModule.performEraserAction(point);
+    } else {
+        state.currentPoints = [point];
+    }
+    canvasModule.renderCanvas(); // Fix for Issue 4: Render immediately on click
   }
 });
 
-canvas.addEventListener('pointermove', (e) => {
-  if (!isDrawing) return;
+canvasModule.canvas.addEventListener('pointermove', (e) => {
+  if (!state.isDrawing) return;
   
-  if (currentTool === 'pan' && isPanning) {
-    const dx = e.clientX - panStart.x;
-    const dy = e.clientY - panStart.y;
+  if (state.currentTool === 'pan' && state.isPanning) {
+    const dx = e.clientX - state.panStart.x;
+    const dy = e.clientY - state.panStart.y;
+    
+    const camera = state.getActiveCamera();
     camera.x += dx;
     camera.y += dy;
-    panStart = { x: e.clientX, y: e.clientY };
-    renderCanvas();
+    
+    state.panStart = { x: e.clientX, y: e.clientY };
+    canvasModule.renderCanvas();
+    objects.updateDOMObjects(); 
     return;
   }
 
-  if (currentTool === 'select') {
-    const point = getPoint(e);
-    
-    if (isMovingSelection) {
-      const dx = point.x - dragStart.x;
-      const dy = point.y - dragStart.y;
-      moveSelection(dx, dy);
-      renderCanvas();
-      updateSelectionToolbarPosition();
+  if (state.currentTool === 'shape') {
+      canvasModule.renderCanvas();
       return;
-    }
-    
-    if (isResizingSelection) {
-      resizeSelection(point);
-      renderCanvas();
-      updateSelectionToolbarPosition();
-      return;
-    }
-
-    lassoPoints.push(point);
-    renderCanvas();
-    return;
   }
 
-  if (currentTool === 'pen' || (currentTool === 'eraser' && eraserType === 'point')) {
-    const point = getPoint(e);
-    currentPoints.push(point);
-    renderCanvas();
+  if (state.currentTool === 'select') {
+    const point = utils.getPoint(e);
+    
+    if (state.isMovingSelection) {
+      // Auto-Pan
+      const panned = canvasModule.autoPanOnEdge(e.clientX, e.clientY);
+      
+      // If panned, we need to re-calculate dx/dy relative to NEW camera position
+      // moveSelection uses state.dragStart (world pos at start) and current mouse world pos.
+      // If camera moves, current mouse world pos changes, so moveSelection logic still holds.
+      // But we need to ensure renderCanvas happens.
+      // moveSelection calls renderCanvas.
+      
+      const dx = point.x - state.dragStart.x;
+      const dy = point.y - state.dragStart.y;
+      selection.moveSelection(dx, dy);
+      canvasModule.renderCanvas();
+      objects.updateDOMObjects();
+      
+      // Fix: Update media controls position during drag
+      if (state.activeMedia) {
+          const wrapper = document.querySelector(`.dom-object-wrapper[data-id="obj-${state.activeMedia.index}"]`);
+          if (wrapper) {
+               // We need to call updateMediaControlsPosition from objects module
+               // But it's not exported directly? It is not.
+               // It is called inside updateDOMObjects, so it should be fine?
+               // updateDOMObjects calls updateMediaControlsPosition(wrapper).
+               // So if updateDOMObjects is called, controls should move.
+               // Let's double check objects.js
+          }
+      }
+      
+      selection.updateSelectionToolbarPosition();
+      return;
+    }
+    
+    if (state.isResizingSelection) {
+      // Auto-Pan for resize too? User only asked for "move canvas when dragging". 
+      // Usually dragging resize handle to edge should also pan.
+      // Let's enable it for resize too.
+      canvasModule.autoPanOnEdge(e.clientX, e.clientY);
+      
+      selection.resizeSelection(point);
+      canvasModule.renderCanvas();
+      objects.updateDOMObjects();
+      selection.updateSelectionToolbarPosition();
+      return;
+    }
+
+    state.lassoPoints.push(point);
+    canvasModule.renderCanvas();
+    
+    // Check Edge Pan Buttons for Lasso or just moving mouse?
+    // User said "Select, Eraser also use canvas auxiliary move".
+    // "Auxiliary move" means the buttons.
+    // So we should call checkEdgePan(point) here if NOT drawing/dragging?
+    // If we are drawing lasso, we are 'drawing'. checkEdgePan returns if isDrawing?
+    // checkEdgePan checks isPanning/isMovingSelection. It doesn't check isDrawing explicitly.
+    // But we should probably not show buttons while lassoing.
+    // But if just moving mouse (hover), show buttons.
+    return;
+  }
+  
+  // Show Edge Pan Buttons for Select Tool (Hover)
+  if (state.currentTool === 'select' && !state.isDrawing && !state.isMovingSelection && !state.isResizingSelection) {
+      const point = utils.getPoint(e);
+      checkEdgePan(point);
+  }
+
+  if (state.currentTool === 'pen' || state.currentTool === 'eraser') {
+    if (state.currentTool === 'eraser') {
+        const point = utils.getPoint(e);
+        canvasModule.performEraserAction(point);
+        checkEdgePan(point); // Enable for Eraser
+    } else {
+        const point = utils.getPoint(e);
+        state.currentPoints.push(point);
+        
+        // Edge Pan Assist Check
+        checkEdgePan(point);
+    }
+    canvasModule.renderCanvas();
   }
 });
 
-canvas.addEventListener('pointerup', (e) => {
-  if (!isDrawing) return;
-  isDrawing = false;
-  isPanning = false;
-  isMovingSelection = false;
-  isResizingSelection = false;
-  canvas.releasePointerCapture(e.pointerId);
+// Edge Pan Logic
+function checkEdgePan(point) {
+    // Only if not dragging something else?
+    if (state.isPanning || state.isMovingSelection) return;
+
+    // Convert world point to screen point
+    const camera = state.getActiveCamera();
+    const sx = (point.x * camera.z) + camera.x;
+    const sy = (point.y * camera.z) + camera.y;
+    
+    // Expand trigger area to 100px
+    const edgeThreshold = 100; // px
+    const w = window.innerWidth;
+    
+    // Exclude bottom toolbar area from height calculation
+    // Toolbar is at bottom ~100px? (Bottom controls)
+    // Actually, let's just trigger above the toolbar.
+    // Toolbar height is approx 80px (including padding/margin)
+    const toolbarHeight = 100;
+    const h = window.innerHeight - toolbarHeight;
+    
+    const isTop = sy < edgeThreshold;
+    const isBottom = sy > h - edgeThreshold && sy < window.innerHeight; // Still valid if below virtual bottom but above real bottom?
+    // Wait, if I write near toolbar, I want to pan down.
+    // So "bottom edge" is effectively moved up.
+    
+    const isLeft = sx < edgeThreshold;
+    const isRight = sx > w - edgeThreshold;
+    
+    // Reset all
+    document.querySelectorAll('.edge-pan-btn').forEach(btn => {
+        btn.classList.remove('visible');
+        // Reset dynamic positions
+        btn.style.top = '';
+        btn.style.left = '';
+        btn.style.bottom = '';
+        btn.style.right = '';
+        btn.style.transform = '';
+    });
+    
+    let activeBtn = null;
+    
+    if (isTop && isLeft) activeBtn = document.querySelector('.edge-pan-btn.corner.tl');
+    else if (isTop && isRight) activeBtn = document.querySelector('.edge-pan-btn.corner.tr');
+    else if (isBottom && isLeft) activeBtn = document.querySelector('.edge-pan-btn.corner.bl');
+    else if (isBottom && isRight) activeBtn = document.querySelector('.edge-pan-btn.corner.br');
+    else if (isTop) activeBtn = document.querySelector('.edge-pan-btn.top');
+    else if (isBottom) activeBtn = document.querySelector('.edge-pan-btn.bottom');
+    else if (isLeft) activeBtn = document.querySelector('.edge-pan-btn.left');
+    else if (isRight) activeBtn = document.querySelector('.edge-pan-btn.right');
+    
+    if (activeBtn) {
+        activeBtn.classList.add('visible');
+        
+        // Dynamic Positioning near cursor
+        // We want the button to be close to cursor but not under it.
+        // Offset 60px from cursor?
+        const offset = 60;
+        
+        // We need to override CSS positioning
+        activeBtn.style.position = 'absolute';
+        activeBtn.style.transform = 'translate(-50%, -50%)'; // Center anchor
+        
+        // Constrain to screen bounds?
+        let targetX = sx;
+        let targetY = sy;
+        
+        if (activeBtn.classList.contains('top')) {
+            targetY = sy + offset;
+        } else if (activeBtn.classList.contains('bottom')) {
+            targetY = sy - offset;
+        } else if (activeBtn.classList.contains('left')) {
+            targetX = sx + offset;
+        } else if (activeBtn.classList.contains('right')) {
+            targetX = sx - offset;
+        } else if (activeBtn.classList.contains('tl')) {
+            targetX = sx + offset/1.4;
+            targetY = sy + offset/1.4;
+        } else if (activeBtn.classList.contains('tr')) {
+            targetX = sx - offset/1.4;
+            targetY = sy + offset/1.4;
+        } else if (activeBtn.classList.contains('bl')) {
+            targetX = sx + offset/1.4;
+            targetY = sy - offset/1.4;
+        } else if (activeBtn.classList.contains('br')) {
+            targetX = sx - offset/1.4;
+            targetY = sy - offset/1.4;
+        }
+        
+        // Ensure button doesn't go off screen
+        targetX = Math.max(30, Math.min(w - 30, targetX));
+        targetY = Math.max(30, Math.min(window.innerHeight - 30, targetY)); // Use full height for clamping
+        
+        activeBtn.style.left = `${targetX}px`;
+        activeBtn.style.top = `${targetY}px`;
+        activeBtn.style.bottom = 'auto';
+        activeBtn.style.right = 'auto';
+    }
+}
+
+// Edge Pan Button Click Handlers
+document.querySelectorAll('.edge-pan-btn').forEach(btn => {
+    // Use pointerdown to avoid breaking the drawing flow?
+    // Actually user has to click it. If they click it, they stop drawing?
+    // "点击后向相应区域漫游一块（保持书写状态）" -> "Click to pan ... (maintain writing state)"
+    // If they click the button, pointerdown fires on button.
+    // If they are currently drawing (pointerdown on canvas), they can't click the button without releasing pointer first?
+    // UNLESS the button appears under the pen? 
+    // "在当前视图边缘书写时显示...点击后..."
+    // If I am writing at the edge, I lift the pen, click the button, and the canvas moves?
+    // "保持书写状态" might mean "Don't exit Pen tool".
+    // Or it means "Move canvas, but let me continue the SAME stroke"? 
+    // If I lift pen, the stroke ends.
+    // Maybe they mean "Don't switch to Pan tool".
+    
+    btn.onclick = (e) => {
+        e.stopPropagation(); // Don't trigger canvas click
+        const dir = btn.dataset.direction;
+        const panAmount = 200; // px
+        const camera = state.getActiveCamera();
+        
+        // Move camera in opposite direction to show new area
+        if (dir.includes('up') || dir === 'tl' || dir === 'tr') camera.y += panAmount;
+        if (dir.includes('down') || dir === 'bl' || dir === 'br') camera.y -= panAmount;
+        if (dir.includes('left') || dir === 'tl' || dir === 'bl') camera.x += panAmount;
+        if (dir.includes('right') || dir === 'tr' || dir === 'br') camera.x -= panAmount;
+        
+        canvasModule.renderCanvas();
+        objects.updateDOMObjects();
+        require('./modules/ui').updateMinimap();
+        
+        // Hide buttons after click? Or keep them if mouse is still there?
+        // Mouse is there.
+        // Let's re-check?
+        // But point is relative to screen. If camera moves, world point under mouse changes.
+        // Screen point stays same. So buttons should stay visible?
+    };
+    
+    // Prevent button click from stealing focus or changing tool?
+    // Default click behavior is fine.
+});
+
+canvasModule.canvas.addEventListener('pointerup', (e) => {
+  if (!state.isDrawing) return;
+  state.isDrawing = false;
+  state.isPanning = false;
+  state.isMovingSelection = false;
+  state.isResizingSelection = false;
+  canvasModule.canvas.releasePointerCapture(e.pointerId);
   
-  if (currentTool === 'select') {
-    if (lassoPoints.length > 0) {
-      performLassoSelection();
-      lassoPoints = [];
+  if (state.currentTool === 'select') {
+    if (state.lassoPoints.length > 0) {
+      selection.performLassoSelection();
+      state.lassoPoints = [];
     }
-    // Update bounds if we moved/resized
-    if (selectedStrokeIndices.length > 0) {
-      updateSelectionBounds();
-      showSelectionToolbar();
+    if (state.selectedStrokeIndices.length > 0) {
+      selection.updateSelectionBounds();
+      selection.showSelectionToolbar();
     }
-    renderCanvas();
+    canvasModule.renderCanvas();
+    objects.updateDOMObjects();
     return;
   }
 
-  if (currentTool === 'pen' || (currentTool === 'eraser' && eraserType === 'point')) {
+  if (state.currentTool === 'shape') {
+      const point = utils.getPoint(e);
+      const complexShapes = ['cuboid', 'cone', 'axis-xy', 'axis-xyz'];
+      const isComplex = complexShapes.includes(state.currentShape);
+      
+      const shape = {
+          type: 'shape',
+          shapeType: state.currentShape,
+          color: state.penColor,
+          size: state.penSize
+      };
+      
+      if (!state.pendingShape) {
+          // Step 1 finished
+          shape.start = state.shapeStart;
+          shape.end = point;
+          
+          // Auto-adjust for Square/Circle
+          if (state.currentShape === 'square' || state.currentShape === 'circle') {
+              const w = shape.end.x - shape.start.x;
+              const h = shape.end.y - shape.start.y;
+              const s = Math.max(Math.abs(w), Math.abs(h));
+              shape.end.x = shape.start.x + (w < 0 ? -s : s);
+              shape.end.y = shape.start.y + (h < 0 ? -s : s);
+          }
+          
+          if (isComplex) {
+              state.pendingShape = { start: shape.start, end: shape.end };
+          } else {
+              const strokes = state.getActiveStrokes();
+              strokes.push(shape);
+              state.redoStack = [];
+          }
+      } else {
+          // Step 2 finished
+          shape.start = state.pendingShape.start;
+          shape.end = state.pendingShape.end;
+          shape.depthEnd = point;
+          shape.step = 2;
+          
+          const strokes = state.getActiveStrokes();
+          strokes.push(shape);
+          state.pendingShape = null;
+          state.redoStack = [];
+      }
+      
+      canvasModule.renderCanvas();
+      ui.renderToolbar(handleToolClick);
+      return;
+  }
+
+  if (state.currentTool === 'pen') {
     const stroke = {
-      type: currentTool,
-      points: currentPoints,
-      color: currentTool === 'eraser' ? 'transparent' : penColor,
-      size: currentTool === 'eraser' ? eraserSize : penSize,
-      isPointEraser: currentTool === 'eraser' && eraserType === 'point',
-      taper: currentTool === 'pen' ? penTaper : false
+      type: state.currentTool,
+      points: state.currentPoints,
+      color: state.penColor,
+      size: state.penSize,
+      taper: state.penTaper
     };
     
-    pages[currentPageIndex].push(stroke);
-    redoStack = [];
+    const strokes = state.getActiveStrokes();
+    strokes.push(stroke);
     
-    renderCanvas();
-    renderToolbar();
+    // Clear Redo
+    if (state.fullscreen.active) {
+        state.fullscreen.redoStack = [];
+    } else {
+        state.redoStack = [];
+    }
+    
+    canvasModule.renderCanvas();
+    ui.renderToolbar(handleToolClick);
   }
 });
-
-// --- Selection Logic ---
-
-function performLassoSelection() {
-  if (lassoPoints.length < 3) return;
-
-  const strokes = pages[currentPageIndex];
-  selectedStrokeIndices = [];
-
-  for (let i = 0; i < strokes.length; i++) {
-    const stroke = strokes[i];
-    if (stroke.isPointEraser) continue;
-
-    // Check if any point is inside
-    if (stroke.type === 'image') {
-        // Check if image corners are inside lasso (simplification)
-        // Or check if lasso intersects rect
-        const corners = [
-            {x: stroke.x, y: stroke.y},
-            {x: stroke.x + stroke.w, y: stroke.y},
-            {x: stroke.x + stroke.w, y: stroke.y + stroke.h},
-            {x: stroke.x, y: stroke.y + stroke.h}
-        ];
-        for (const p of corners) {
-            if (isPointInPolygon(p, lassoPoints)) {
-                selectedStrokeIndices.push(i);
-                break;
-            }
-        }
-    } else {
-        for (const p of stroke.points) {
-            if (isPointInPolygon(p, lassoPoints)) {
-                selectedStrokeIndices.push(i);
-                break;
-            }
-        }
-    }
-  }
-  
-  if (selectedStrokeIndices.length > 0) {
-    updateSelectionBounds();
-    showSelectionToolbar();
-  } else {
-    selectionBounds = null;
-    selectionToolbar.style.display = 'none';
-  }
-}
-
-function updateSelectionBounds() {
-  if (selectedStrokeIndices.length === 0) {
-    selectionBounds = null;
-    return;
-  }
-
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  
-  selectedStrokeIndices.forEach(idx => {
-    const stroke = pages[currentPageIndex][idx];
-    if (stroke.type === 'image') {
-        if (stroke.x < minX) minX = stroke.x;
-        if (stroke.y < minY) minY = stroke.y;
-        if (stroke.x + stroke.w > maxX) maxX = stroke.x + stroke.w;
-        if (stroke.y + stroke.h > maxY) maxY = stroke.y + stroke.h;
-    } else {
-        stroke.points.forEach(p => {
-            if (p.x < minX) minX = p.x;
-            if (p.y < minY) minY = p.y;
-            if (p.x > maxX) maxX = p.x;
-            if (p.y > maxY) maxY = p.y;
-        });
-    }
-  });
-
-  const padding = 10;
-  selectionBounds = {
-    x: minX - padding,
-    y: minY - padding,
-    w: (maxX - minX) + padding * 2,
-    h: (maxY - minY) + padding * 2
-  };
-}
-
-function showSelectionToolbar() {
-  if (!selectionBounds) return;
-  // Convert world coords to screen coords
-  const screenX = (selectionBounds.x * camera.z) + camera.x;
-  const screenY = ((selectionBounds.y + selectionBounds.h) * camera.z) + camera.y;
-  
-  selectionToolbar.style.display = 'flex';
-  selectionToolbar.style.left = `${screenX + selectionBounds.w * camera.z / 2 - selectionToolbar.offsetWidth / 2}px`;
-  selectionToolbar.style.top = `${screenY + 20}px`;
-}
-
-function updateSelectionToolbarPosition() {
-  showSelectionToolbar();
-}
-
-function getHitHandle(point) {
-  if (!selectionBounds) return -1;
-  const r = 10 / camera.z; // Handle radius in world space
-  const handles = [
-    { x: selectionBounds.x, y: selectionBounds.y }, // TL
-    { x: selectionBounds.x + selectionBounds.w, y: selectionBounds.y }, // TR
-    { x: selectionBounds.x + selectionBounds.w, y: selectionBounds.y + selectionBounds.h }, // BR
-    { x: selectionBounds.x, y: selectionBounds.y + selectionBounds.h } // BL
-  ];
-
-  for (let i = 0; i < 4; i++) {
-    const h = handles[i];
-    if (Math.hypot(point.x - h.x, point.y - h.y) < r) return i;
-  }
-  return -1;
-}
-
-function isPointInRect(p, rect) {
-  return p.x >= rect.x && p.x <= rect.x + rect.w && p.y >= rect.y && p.y <= rect.y + rect.h;
-}
-
-function cloneStrokes(indices) {
-  return indices.map(idx => {
-    const original = pages[currentPageIndex][idx];
-    if (original.type === 'image') {
-        // Shallow copy is enough for primitives, but we need to reference the same img element
-        // or create a new one? Same element is fine for rendering, but src is key.
-        return { ...original }; 
-    }
-    return JSON.parse(JSON.stringify(original));
-  });
-}
-
-function moveSelection(dx, dy) {
-  selectedStrokeIndices.forEach((idx, i) => {
-    const original = originalSelectionStrokes[i];
-    const current = pages[currentPageIndex][idx];
-    if (current.type === 'image') {
-        current.x = original.x + dx;
-        current.y = original.y + dy;
-    } else {
-        current.points = original.points.map(p => ({
-            ...p,
-            x: p.x + dx,
-            y: p.y + dy
-        }));
-    }
-  });
-  updateSelectionBounds();
-}
-
-function resizeSelection(cursorPoint) {
-  // Simple scaling relative to opposite corner
-  // 0: TL (opp: BR), 1: TR (opp: BL), 2: BR (opp: TL), 3: BL (opp: TR)
-  // This is complex to implement perfectly with rotation, keeping it simple AABB scaling
-  
-  // Calculate bounds of original selection
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  originalSelectionStrokes.forEach(s => {
-    s.points.forEach(p => {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    });
-  });
-  
-  const oldW = maxX - minX;
-  const oldH = maxY - minY;
-  if (oldW === 0 || oldH === 0) return;
-
-  // New bounds based on handle drag
-  // For simplicity, let's just scale everything based on the ratio of new size vs old size
-  // This requires tracking the anchor point (opposite handle)
-  
-  // ... Simplifying for stability: Just allow moving for now, resize is tricky without proper math lib
-  // But user asked for it.
-  // Let's approximate.
-}
-
-// --- Selection Actions ---
-
-function deleteSelection() {
-  // Delete from end to start to maintain indices
-  selectedStrokeIndices.sort((a, b) => b - a);
-  selectedStrokeIndices.forEach(idx => {
-    pages[currentPageIndex].splice(idx, 1);
-  });
-  selectedStrokeIndices = [];
-  selectionBounds = null;
-  selectionToolbar.style.display = 'none';
-  renderCanvas();
-}
-
-function cloneSelection() {
-  const newIndices = [];
-  const offset = 20;
-  selectedStrokeIndices.forEach(idx => {
-    const original = pages[currentPageIndex][idx];
-    let stroke;
-    if (original.type === 'image') {
-        stroke = { ...original, x: original.x + offset, y: original.y + offset };
-    } else {
-        stroke = JSON.parse(JSON.stringify(original));
-        stroke.points.forEach(p => { p.x += offset; p.y += offset; });
-    }
-    pages[currentPageIndex].push(stroke);
-    newIndices.push(pages[currentPageIndex].length - 1);
-  });
-  selectedStrokeIndices = newIndices;
-  updateSelectionBounds();
-  showSelectionToolbar();
-  renderCanvas();
-}
-
-function cloneSelectionToNewPage() {
-  const strokesToClone = selectedStrokeIndices.map(idx => {
-      const original = pages[currentPageIndex][idx];
-      if (original.type === 'image') return { ...original };
-      return JSON.parse(JSON.stringify(original));
-  });
-  pages.push(strokesToClone); // New page with just these strokes
-  currentPageIndex = pages.length - 1;
-  selectedStrokeIndices = strokesToClone.map((_, i) => i);
-  updatePageIndicator();
-  updateSelectionBounds();
-  showSelectionToolbar();
-  renderCanvas();
-}
-
-function openAdjustPopup() {
-  if (!selectionBounds) return;
-  const rect = selectionToolbar.getBoundingClientRect();
-  adjustPopup.style.display = 'block';
-  adjustPopup.style.left = `${rect.left}px`;
-  adjustPopup.style.top = `${rect.bottom + 10}px`;
-  adjustPopup.style.transform = 'none'; // Override centering
-}
-
-function applyAdjustment(props) {
-  selectedStrokeIndices.forEach(idx => {
-    const stroke = pages[currentPageIndex][idx];
-    if (props.color) stroke.color = props.color;
-    if (props.size) stroke.size = props.size;
-  });
-  renderCanvas();
-}
-
-// --- Geometry Helpers ---
-
-function isPointInPolygon(point, vs) {
-    var x = point.x, y = point.y;
-    var inside = false;
-    for (var i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-        var xi = vs[i].x, yi = vs[i].y;
-        var xj = vs[j].x, yj = vs[j].y;
-        var intersect = ((yi > y) != (yj > y))
-            && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-        if (intersect) inside = !inside;
-    }
-    return inside;
-}
-
-// --- Rendering ---
-
-function renderCanvas() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  ctx.save();
-  ctx.translate(camera.x, camera.y);
-  ctx.scale(camera.z, camera.z);
-  
-  const strokes = pages[currentPageIndex] || [];
-  
-  // Render committed strokes
-  strokes.forEach((stroke, index) => {
-    const isSelected = selectedStrokeIndices.includes(index);
-    if (stroke.type === 'image') {
-        drawImageObj(stroke, isSelected);
-    } else {
-        drawStroke(stroke, isSelected);
-    }
-  });
-  
-  // Render current stroke
-  if (isDrawing && (currentTool === 'pen' || currentTool === 'eraser')) {
-    const tempStroke = {
-      type: currentTool,
-      points: currentPoints,
-      color: currentTool === 'eraser' ? 'rgba(255,255,255,0.5)' : penColor,
-      size: currentTool === 'eraser' ? eraserSize : penSize,
-      isPointEraser: currentTool === 'eraser' && eraserType === 'point',
-      taper: currentTool === 'pen' ? penTaper : false
-    };
-    drawStroke(tempStroke);
-  }
-
-  // Render Lasso Path
-  if (isDrawing && currentTool === 'select' && lassoPoints.length > 0) {
-    ctx.beginPath();
-    ctx.setLineDash([5, 5]);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.moveTo(lassoPoints[0].x, lassoPoints[0].y);
-    for (let i = 1; i < lassoPoints.length; i++) {
-      ctx.lineTo(lassoPoints[i].x, lassoPoints[i].y);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // Render Selection Bounds
-  if (selectionBounds) {
-    ctx.beginPath();
-    ctx.setLineDash([5, 5]);
-    ctx.strokeStyle = '#ffffff'; // Accent
-    ctx.lineWidth = 1;
-    ctx.rect(selectionBounds.x, selectionBounds.y, selectionBounds.w, selectionBounds.h);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Draw Handles
-    const handleSize = 10 / camera.z;
-    const handles = [
-      { x: selectionBounds.x, y: selectionBounds.y }, // TL
-      { x: selectionBounds.x + selectionBounds.w, y: selectionBounds.y }, // TR
-      { x: selectionBounds.x + selectionBounds.w, y: selectionBounds.y + selectionBounds.h }, // BR
-      { x: selectionBounds.x, y: selectionBounds.y + selectionBounds.h } // BL
-    ];
-    
-    ctx.fillStyle = 'white';
-    ctx.strokeStyle = '#ffffff';
-    handles.forEach(h => {
-      ctx.beginPath();
-      ctx.arc(h.x, h.y, handleSize / 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    });
-  }
-  
-  ctx.restore();
-
-  // Render Eraser Cursor
-  if (currentTool === 'eraser') {
-    ctx.save();
-    ctx.beginPath();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.arc(mousePos.x, mousePos.y, eraserSize / 2 * camera.z, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
-}
-
-function drawImageObj(obj, isSelected = false) {
-    if (!obj.img) return;
-    try {
-        ctx.drawImage(obj.img, obj.x, obj.y, obj.w, obj.h);
-        if (isSelected) {
-            ctx.save();
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
-            ctx.strokeRect(obj.x, obj.y, obj.w, obj.h);
-            ctx.restore();
-        }
-    } catch (e) {
-        console.error('Error drawing image:', e);
-    }
-}
-
-function drawStroke(stroke, isSelected = false) {
-  const { points, color, size, isPointEraser, taper } = stroke;
-  
-  if (points.length < 2) return;
-
-  const outlinePoints = getStroke(points, {
-    size: size,
-    thinning: taper ? 0.7 : 0, // Enable thinning if taper is on
-    smoothing: 0.5,
-    streamline: 0.5,
-    start: { taper: taper ? size : 0, easing: (t) => t }, // Taper start if enabled
-    end: { taper: taper ? size : 0, easing: (t) => t }   // Taper end if enabled
-  });
-
-  const pathData = getSvgPathFromStroke(outlinePoints);
-  const path = new Path2D(pathData);
-
-  ctx.save();
-  if (stroke.type === 'eraser') {
-    if (isPointEraser) {
-       ctx.globalCompositeOperation = 'destination-out';
-       ctx.fillStyle = 'black'; 
-    } else {
-       ctx.globalCompositeOperation = 'destination-out';
-       ctx.fillStyle = 'black';
-    }
-  } else {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = color;
-  }
-  
-  ctx.fill(path);
-
-  if (isSelected) {
-    ctx.strokeStyle = '#ffffff'; 
-    ctx.lineWidth = 2;
-    ctx.stroke(path);
-  }
-
-  ctx.restore();
-}
-
-function getSvgPathFromStroke(stroke) {
-  if (!stroke.length) return '';
-
-  const d = stroke.reduce(
-    (acc, [x0, y0], i, arr) => {
-      const [x1, y1] = arr[(i + 1) % arr.length];
-      acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
-      return acc;
-    },
-    ['M', ...stroke[0], 'Q']
-  );
-
-  d.push('Z');
-  return d.join(' ');
-}
-
-// --- Undo/Redo ---
 
 function performUndo() {
-  if (pages[currentPageIndex].length === 0) return;
-  const stroke = pages[currentPageIndex].pop();
+  const strokes = state.getActiveStrokes();
+  const redoStack = state.getActiveRedoStack();
+  
+  if (strokes.length === 0) return;
+  const stroke = strokes.pop();
   redoStack.push(stroke);
-  renderCanvas();
-  renderToolbar();
+  
+  canvasModule.renderCanvas();
+  ui.renderToolbar(handleToolClick);
 }
 
 function performRedo() {
+  const strokes = state.getActiveStrokes();
+  const redoStack = state.getActiveRedoStack();
+  
   if (redoStack.length === 0) return;
   const stroke = redoStack.pop();
-  pages[currentPageIndex].push(stroke);
-  renderCanvas();
-  renderToolbar();
-}
-
-// --- Export ---
-function exportImage() {
-    const dataUrl = canvas.toDataURL('image/png');
-    ipcRenderer.send('annotate-save-image', dataUrl);
-}
-
-// --- Page Controls ---
-
-document.getElementById('btn-prev-page').onclick = () => {
-    if (currentPageIndex > 0) {
-        updateCurrentPageSnapshot();
-        currentPageIndex--;
-        redoStack = [];
-        updatePageIndicator();
-        renderCanvas();
-    }
-};
-
-document.getElementById('btn-next-page').onclick = () => {
-    if (currentPageIndex === pages.length - 1) {
-        updateCurrentPageSnapshot();
-        pages.push([]);
-    } else {
-        updateCurrentPageSnapshot();
-    }
-    currentPageIndex++;
-    redoStack = [];
-    updatePageIndicator();
-    renderCanvas();
-};
-
-document.getElementById('btn-insert-page').onclick = () => {
-    updateCurrentPageSnapshot();
-    // Insert new page after current
-    pages.splice(currentPageIndex + 1, 0, []);
-    pageSnapshots.splice(currentPageIndex + 1, 0, null);
-    currentPageIndex++;
-    redoStack = [];
-    updatePageIndicator();
-    renderCanvas();
-};
-
-document.getElementById('btn-collapse').onclick = () => {
-    ipcRenderer.send('annotate-minimize');
-};
-
-document.getElementById('btn-save-wb').onclick = () => {
-    exportImage();
-};
-
-document.getElementById('page-indicator-btn').onclick = () => {
-    updateCurrentPageSnapshot();
-    renderPagePreview();
-    if (pagePreviewPopup.style.display === 'none') {
-        pagePreviewPopup.style.display = 'flex';
-    } else {
-        pagePreviewPopup.style.display = 'none';
-    }
-};
-
-document.getElementById('btn-close-preview').onclick = () => {
-    pagePreviewPopup.style.display = 'none';
-};
-
-function updatePageIndicator() {
-    const indicatorText = document.getElementById('page-indicator-text');
-    indicatorText.textContent = `${currentPageIndex + 1} / ${pages.length}`;
-    
-    // Update Next button text
-    const nextBtn = document.getElementById('btn-next-page');
-    const nextSpan = nextBtn.querySelector('span');
-    const nextIcon = nextBtn.querySelector('i');
-    
-    if (currentPageIndex === pages.length - 1) {
-        nextSpan.textContent = '新建页';
-        nextIcon.className = 'ri-add-line';
-    } else {
-        nextSpan.textContent = '下一页';
-        nextIcon.className = 'ri-arrow-right-s-line';
-    }
-}
-
-function updateCurrentPageSnapshot() {
-    const isEraser = currentTool === 'eraser';
-    if (isEraser) currentTool = 'temp_hidden'; // Hide cursor
-    renderCanvas();
-    pageSnapshots[currentPageIndex] = canvas.toDataURL('image/png');
-    if (isEraser) currentTool = 'eraser';
-    renderCanvas(); // Restore
-}
-
-function renderPagePreview() {
-    pageList.innerHTML = '';
-    
-    pages.forEach((pageStrokes, index) => {
-        const container = document.createElement('div');
-        container.className = 'page-preview-container';
-
-        // Label outside
-        const label = document.createElement('div');
-        label.className = 'page-number-label';
-        label.textContent = `${index + 1}`;
-        container.appendChild(label);
-
-        // Preview Box
-        const item = document.createElement('div');
-        item.className = `page-preview-item ${index === currentPageIndex ? 'active' : ''}`;
-        
-        // Image
-        const img = document.createElement('img');
-        img.className = 'preview-img';
-        img.src = pageSnapshots[index] || ''; 
-        item.appendChild(img);
-        
-        // Delete Button (Inside)
-        const delBtn = document.createElement('button');
-        delBtn.className = 'btn-delete-page';
-        delBtn.innerHTML = '<i class="ri-delete-bin-line"></i>';
-        delBtn.title = '删除此页';
-        delBtn.onclick = (e) => {
-            e.stopPropagation();
-            deletePage(index);
-        };
-        item.appendChild(delBtn);
-        
-        item.onclick = () => {
-            currentPageIndex = index;
-            redoStack = [];
-            updatePageIndicator();
-            renderCanvas();
-        };
-        
-        container.appendChild(item);
-        pageList.appendChild(container);
-    });
+  strokes.push(stroke);
+  
+  canvasModule.renderCanvas();
+  ui.renderToolbar(handleToolClick);
 }
 
 function deletePage(index) {
-    if (pages.length <= 1) {
-        pages[0] = [];
-        pageSnapshots[0] = null;
-        renderCanvas();
-        renderPagePreview();
+    if (state.pages.length <= 1) {
+        state.pages[0] = [];
+        state.pageSnapshots[0] = null;
+        canvasModule.renderCanvas();
+        ui.renderPagePreview(deletePage);
         return;
     }
     
-    pages.splice(index, 1);
-    pageSnapshots.splice(index, 1);
+    state.pages.splice(index, 1);
+    state.pageSnapshots.splice(index, 1);
+    // Fix for Issue 1: Remove background
+    state.pageBackgrounds.splice(index, 1);
     
-    if (currentPageIndex >= pages.length) {
-        currentPageIndex = pages.length - 1;
-    } else if (currentPageIndex > index) {
-        currentPageIndex--;
+    if (state.currentPageIndex >= state.pages.length) {
+        state.currentPageIndex = state.pages.length - 1;
+    } else if (state.currentPageIndex > index) {
+        state.currentPageIndex--;
     }
     
-    renderCanvas();
-    updatePageIndicator();
-    renderPagePreview();
+    // Fix for Issue 1: Sync background
+    if (state.pageBackgrounds[state.currentPageIndex]) {
+        document.documentElement.style.setProperty('--bg', state.pageBackgrounds[state.currentPageIndex]);
+    }
+    
+    canvasModule.renderCanvas();
+    ui.updatePageIndicator();
+    ui.renderPagePreview(deletePage);
+    objects.updateDOMObjects();
 }
+
+function exportImage() {
+    const dataUrl = canvasModule.canvas.toDataURL('image/png');
+    ipcRenderer.send('annotate-save-image', dataUrl);
+}
+
+// --- IPC Handling for Media ---
+ipcRenderer.on('annotate-insert-media-reply', (event, { type, path }) => {
+    // If fullscreen, we probably shouldn't allow inserting media (as per user implication of 'separate layer')
+    // But if we did, it would go into fullscreen strokes. 
+    // For now, let's assume it goes to the current active layer (which IS fullscreen strokes if active).
+    const strokes = state.getActiveStrokes();
+    const camera = state.getActiveCamera();
+    
+    if (type === 'file' && path) {
+        const ext = path.split('.').pop().toLowerCase();
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
+            const img = new Image();
+            img.onload = () => {
+                const center = utils.getScreenCenterWorld(); // Uses state.camera, need to ensure it uses active camera?
+                // utils.getScreenCenterWorld reads state.camera directly. 
+                // We should update utils or manually calculate center.
+                // Let's assume utils uses state.camera which we haven't patched.
+                // We should patch utils.getScreenCenterWorld to use getActiveCamera() or just handle it here.
+                
+                // Let's manually calc center based on active camera
+                const cx = (window.innerWidth / 2 - camera.x) / camera.z;
+                const cy = (window.innerHeight / 2 - camera.y) / camera.z;
+                
+                const { w, h } = utils.getFittedSize(img.width, img.height);
+                
+                const obj = {
+                    type: 'image',
+                    img: img,
+                    src: path,
+                    x: cx - w / 2,
+                    y: cy - h / 2,
+                    w: w,
+                    h: h
+                };
+                strokes.push(obj);
+                canvasModule.renderCanvas();
+            };
+            img.src = path;
+        } else if (['mp4', 'webm', 'ogg'].includes(ext)) {
+            generateVideoThumbnail(path).then((thumbData) => {
+                // Use active camera center
+                const cx = (window.innerWidth / 2 - camera.x) / camera.z;
+                const cy = (window.innerHeight / 2 - camera.y) / camera.z;
+
+                let w = 400, h = 300;
+                if (thumbData) {
+                    const fitted = utils.getFittedSize(thumbData.w, thumbData.h);
+                    w = fitted.w;
+                    h = fitted.h;
+                }
+                
+                const obj = {
+                    type: 'video',
+                    src: path,
+                    thumb: thumbData ? thumbData.dataUrl : null,
+                    name: path.split(/[\\/]/).pop(),
+                    x: cx - w / 2,
+                    y: cy - h / 2,
+                    w: w,
+                    h: h
+                };
+                strokes.push(obj);
+                objects.updateDOMObjects();
+            });
+        } else if (['mp3', 'wav'].includes(ext)) {
+             const cx = (window.innerWidth / 2 - camera.x) / camera.z;
+             const cy = (window.innerHeight / 2 - camera.y) / camera.z;
+             
+             // Issue 2: Use fixed width instead of adaptive
+             const name = path.split(/[\\/]/).pop();
+             const estimatedWidth = 300; // Fixed width (was 200 before, now 300 for icon+text)
+             
+             const obj = {
+                 type: 'audio',
+                 src: path,
+                 name: name,
+                 x: cx - estimatedWidth / 2,
+                 y: cy - 30,
+                 w: estimatedWidth,
+                 h: 60
+             };
+             strokes.push(obj);
+             objects.updateDOMObjects();
+        }
+    } else if (type === 'browser') {
+        ui.showModal('请输入网页地址', [
+            { label: '地址', value: 'https://orbiboard.3r60.top/' }
+        ], (values) => {
+            if (values && values[0]) {
+                const url = values[0];
+                const cx = (window.innerWidth / 2 - camera.x) / camera.z;
+                const cy = (window.innerHeight / 2 - camera.y) / camera.z;
+                const w = 200;
+                const h = 150;
+                
+                const obj = {
+                    type: 'browser',
+                    src: url,
+                    name: new URL(url).hostname,
+                    x: cx - w / 2,
+                    y: cy - h / 2,
+                    w: w,
+                    h: h
+                };
+                strokes.push(obj);
+                objects.updateDOMObjects();
+            }
+        });
+    } else if (type === 'link') {
+        ui.showModal('请输入超链接信息', [
+            { label: '链接名称', value: '打开链接' },
+            { label: '链接地址', value: 'https://orbiboard.3r60.top/' }
+        ], (values) => {
+            if (values && values[1]) {
+                const name = values[0] || '打开链接';
+                const url = values[1];
+                
+                const btn = document.createElement('button');
+                btn.textContent = name;
+                btn.className = 'link-object-btn dom-object-wrapper'; 
+                btn.onclick = () => {
+                    if (!state.isMovingSelection) {
+                        require('electron').shell.openExternal(url);
+                    }
+                };
+                
+                const cx = (window.innerWidth / 2 - camera.x) / camera.z;
+                const cy = (window.innerHeight / 2 - camera.y) / camera.z;
+
+                const obj = {
+                    type: 'link',
+                    el: btn,
+                    src: url,
+                    name: name,
+                    x: cx - 60,
+                    y: cy - 20,
+                    w: 120,
+                    h: 40
+                };
+                strokes.push(obj);
+                document.body.appendChild(btn);
+                
+                selection.attachObjectListeners(btn, obj);
+                objects.updateDOMObjects();
+                objects.updateObjectInteraction();
+            }
+        });
+    }
+});
+
+function generateVideoThumbnail(path) {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        video.src = path;
+        video.currentTime = 1; 
+        video.muted = true;
+        video.onloadeddata = () => {
+             // wait
+        };
+        video.onseeked = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg');
+            resolve({ dataUrl, w: video.videoWidth, h: video.videoHeight });
+        };
+        video.onerror = () => resolve(null);
+    });
+}
+
+function applyAdjustment(props) {
+  state.selectedStrokeIndices.forEach(idx => {
+    const stroke = state.getActiveStrokes()[idx];
+    if (props.color) stroke.color = props.color;
+    if (props.size) stroke.size = props.size;
+  });
+  canvasModule.renderCanvas();
+}
+
+// --- Window Listener for Lasso (Empty Space Click) ---
+window.addEventListener('pointerdown', (e) => {
+    // Check if clicking outside adjust popup to close it
+    if (ui.adjustPopup.style.display !== 'none') {
+        if (!e.target.closest('#adjust-popup') && !e.target.closest('#btn-sel-adjust')) {
+             ui.adjustPopup.style.display = 'none';
+        }
+    }
+    // Auto-close Insert Menu
+    if (ui.insertMenuPopup.style.display !== 'none') {
+        if (!e.target.closest('#insert-menu-popup') && !e.target.closest('#btn-insert-media')) {
+             ui.insertMenuPopup.style.display = 'none';
+        }
+    }
+    // Auto-close Page Preview (if clicking outside it and outside the toggle button)
+    // The page preview is toggled by page-indicator-btn (which is in page-controls)
+    const pagePreview = document.getElementById('page-preview-popup'); // ui.pagePreviewPopup is not exported directly? 
+    // ui.js exports 'pageControls', 'leftControls', 'toolSettingsPopup', 'insertMenuPopup', 'adjustPopup'.
+    // It does NOT export pagePreviewPopup explicitly in the list I read?
+    // Let's check ui.js exports.
+    // It DOES NOT export pagePreviewPopup. But I can access it via ID.
+    if (pagePreview && pagePreview.style.display !== 'none') {
+        if (!e.target.closest('#page-preview-popup') && !e.target.closest('#page-indicator-btn')) {
+             pagePreview.style.display = 'none';
+        }
+    }
+
+    // Only if Select tool and clicking on empty space (Canvas is pointer-events: none)
+    if (state.currentTool !== 'select') return;
+    
+    // Check if we clicked on toolbar or popups (should be handled by their own listeners/z-index, but just in case)
+    if (e.target.closest('.toolbar') || 
+        e.target.closest('#tool-settings-popup') || 
+        e.target.closest('.bottom-controls') || 
+        e.target.closest('#page-preview-popup') || 
+        e.target.closest('#selection-toolbar') || 
+        e.target.closest('.modal-overlay') ||
+        e.target.closest('#insert-menu-popup') || 
+        e.target.closest('#adjust-popup')) { // Also check adjust popup here to prevent lasso start
+        return;
+    }
+    
+    // Start Lasso
+    const point = utils.getPoint(e);
+    state.lassoPoints = [point]; 
+    state.selectedStrokeIndices = [];
+    state.selectionBounds = null;
+    document.getElementById('selection-toolbar').style.display = 'none';
+    document.getElementById('selection-overlay').style.display = 'none';
+    state.isDrawing = true;
+    canvasModule.renderCanvas();
+    
+    // We need to track move on window because canvas is none
+    const onMove = (em) => {
+        if (!state.isDrawing) return;
+        const p = utils.getPoint(em);
+        state.lassoPoints.push(p);
+        canvasModule.renderCanvas(); // Canvas is z-index 20, so it draws over everything
+    };
+    
+    const onUp = () => {
+        state.isDrawing = false;
+        if (state.lassoPoints.length > 0) {
+            selection.performLassoSelection();
+            state.lassoPoints = [];
+        }
+        if (state.selectedStrokeIndices.length > 0) {
+            selection.updateSelectionBounds();
+            selection.showSelectionToolbar();
+        }
+        canvasModule.renderCanvas();
+        objects.updateDOMObjects();
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+    };
+    
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+});
 
 // Start
 initUI();

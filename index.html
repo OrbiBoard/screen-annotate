@@ -8,11 +8,17 @@
 </head>
 <body>
   <canvas id="canvas-layer"></canvas>
+  <div id="selection-overlay" class="selection-overlay" style="display: none;">
+    <div class="selection-box-dom"></div>
+    <!-- Handles will be added via JS -->
+  </div>
 
   <!-- Tool Settings Popup -->
   <div id="tool-settings-popup" class="tool-settings-popup" style="display: none;">
     <div id="pen-settings" class="settings-group" style="display: none;">
        <div class="color-options">
+         <!-- Fix for Issue 4: Add black color -->
+         <div class="color-swatch" style="background: #000000; border-color: rgba(255,255,255,0.3)" data-color="#000000"></div>
          <div class="color-swatch" style="background: #ffffff" data-color="#ffffff"></div>
          <div class="color-swatch" style="background: #ff4d4f" data-color="#ff4d4f"></div>
          <div class="color-swatch" style="background: #fadb14" data-color="#fadb14"></div>
@@ -22,8 +28,8 @@
        <div class="separator-h"></div>
        <div class="slider-container">
          <span>粗细: </span>
-         <input type="range" id="pen-size-slider" min="1" max="50" value="4">
-         <span id="pen-size-display">4</span>
+         <input type="range" id="pen-size-slider" min="1" max="50" value="6">
+         <span id="pen-size-display">6</span>
        </div>
        <div class="slider-container">
          <span>笔锋: </span>
@@ -44,12 +50,60 @@
          <i class="ri-delete-bin-line"></i> 清页
        </button>
     </div>
+    <div id="pan-settings" class="settings-group" style="display: none;">
+     <button class="text-btn small" id="btn-pan-reset" style="margin-right: 8px;">
+       <i class="ri-refresh-line"></i> 复位
+     </button>
+     <button class="text-btn small" id="btn-pan-fit">
+       <i class="ri-aspect-ratio-line"></i> 适合
+     </button>
+  </div>
+  <div id="shape-settings" class="settings-group" style="display: none;">
+      <div class="shape-header">
+          <span>选择形状</span>
+          <button class="icon-only-btn" id="btn-shape-pin" title="固定窗口">
+              <i class="ri-pushpin-line"></i>
+          </button>
+      </div>
+      <div class="shape-grid">
+          <!-- 2D Shapes -->
+          <button class="shape-btn" data-shape="line" title="直线"><i class="ri-subtract-line"></i></button>
+          <button class="shape-btn" data-shape="arrow" title="单箭头"><i class="ri-arrow-right-line"></i></button>
+          <button class="shape-btn" data-shape="double-arrow" title="双箭头"><i class="ri-arrow-left-right-line"></i></button>
+          <button class="shape-btn" data-shape="rect" title="矩形"><i class="ri-checkbox-blank-line"></i></button>
+          <button class="shape-btn" data-shape="square" title="正方形"><i class="ri-stop-line"></i></button>
+          <button class="shape-btn" data-shape="triangle" title="三角形"><i class="ri-play-line" style="transform: rotate(-90deg);"></i></button>
+          <button class="shape-btn" data-shape="circle" title="圆形"><i class="ri-checkbox-blank-circle-line"></i></button>
+          <button class="shape-btn" data-shape="ellipse" title="椭圆"><i class="ri-loader-3-line"></i></button> <!-- Approximation -->
+          <!-- 3D / Complex -->
+          <button class="shape-btn" data-shape="cuboid" title="长方体"><i class="ri-inbox-line"></i></button>
+          <button class="shape-btn" data-shape="cone" title="圆锥"><i class="ri-filter-3-line"></i></button> <!-- Approx -->
+          <button class="shape-btn" data-shape="axis-xy" title="XY坐标轴"><i class="ri-ruler-line"></i></button>
+          <button class="shape-btn" data-shape="axis-xyz" title="XYZ坐标轴"><i class="ri-compass-3-line"></i></button>
+      </div>
+  </div>
   </div>
 
   <div class="bottom-controls left" id="left-controls" style="display: none;">
+    <!-- Pan Overlay (Mini Map + Toolbar) -->
+    <div id="pan-overlay" style="display: none; position: absolute; bottom: 100%; left: 0; margin-bottom: 10px; flex-direction: column; gap: 8px;">
+        <div id="pan-mini-toolbar" style="display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 4px;">
+            <button class="icon-only-btn" id="btn-pan-zoom-out" title="缩小"><i class="ri-subtract-line"></i></button>
+            <button class="icon-only-btn" id="btn-pan-zoom-reset" title="100%"><i class="ri-search-eye-line"></i></button>
+            <button class="icon-only-btn" id="btn-pan-zoom-in" title="放大"><i class="ri-add-line"></i></button>
+            <div class="separator-v" style="width: 1px; background: var(--border); margin: 0 4px;"></div>
+            <button class="icon-only-btn" id="btn-pan-fit-screen" title="适应屏幕"><i class="ri-aspect-ratio-line"></i></button>
+            <button class="icon-only-btn" id="btn-pan-toggle-map" title="切换地图"><i class="ri-map-2-line"></i></button>
+        </div>
+        <div id="pan-minimap-container" style="width: 200px; height: 150px; background: rgba(0,0,0,0.5); border: 1px solid var(--border); border-radius: 6px; position: relative; overflow: hidden;">
+            <canvas id="minimap-canvas" style="width: 100%; height: 100%; display: block;"></canvas>
+            <div id="minimap-viewport" style="position: absolute; border: 2px solid #1890ff; box-shadow: 0 0 0 1000px rgba(0,0,0,0.5); cursor: grab;"></div>
+        </div>
+    </div>
+
     <button class="tool-btn" id="btn-collapse">
-      <i class="ri-arrow-down-line"></i>
-      <span>收起</span>
+      <i class="ri-close-circle-line"></i>
+      <span>关闭</span>
     </button>
     <button class="tool-btn" id="btn-save-wb">
       <i class="ri-save-line"></i>
@@ -147,6 +201,61 @@
          <i class="ri-link"></i> 超链接
        </button>
     </div>
+  </div>
+
+  <!-- Modal Dialog for Input -->
+  <div id="modal-dialog" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <h3 id="modal-title">请输入</h3>
+      <div id="modal-fields" class="modal-fields-container">
+          <!-- Fields injected here -->
+      </div>
+      <div class="modal-buttons">
+        <button id="modal-cancel" class="text-btn">取消</button>
+        <button id="modal-confirm" class="tool-btn small">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Media Controls -->
+  <div id="media-controls" class="media-controls" style="display: none;">
+    <button id="media-play-pause"><i class="ri-play-fill"></i></button>
+    <div class="media-progress-container">
+        <input type="range" class="media-progress" id="media-progress" min="0" max="100" value="0">
+    </div>
+    <span id="media-time" style="font-size: 12px; color: var(--muted); margin-right: 8px;">00:00 / 00:00</span>
+    <button id="media-fullscreen"><i class="ri-fullscreen-line"></i></button>
+    <button id="media-volume-btn"><i class="ri-volume-up-line"></i></button>
+    <button id="media-close"><i class="ri-close-line"></i></button>
+  </div>
+  
+  <!-- Volume Popup -->
+  <div id="volume-popup" class="volume-popup" style="display: none;">
+      <input type="range" id="volume-slider" min="0" max="100" value="100" orient="vertical">
+  </div>
+
+  <!-- Fullscreen Browser Layer -->
+  <div id="fullscreen-browser-layer" class="fullscreen-browser-layer" style="display: none;">
+    <!-- Webview will be injected here -->
+  </div>
+
+  <button id="fullscreen-exit-btn" class="fullscreen-exit-btn" style="display: none;">
+      <i class="ri-fullscreen-exit-line"></i> 退出全屏
+  </button>
+
+  <!-- Edge Pan Buttons -->
+  <div id="edge-pan-layer" style="display: block; position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
+    <!-- Edges -->
+    <button class="edge-pan-btn top" data-direction="up"><i class="ri-arrow-up-s-line"></i></button>
+    <button class="edge-pan-btn bottom" data-direction="down"><i class="ri-arrow-down-s-line"></i></button>
+    <button class="edge-pan-btn left" data-direction="left"><i class="ri-arrow-left-s-line"></i></button>
+    <button class="edge-pan-btn right" data-direction="right"><i class="ri-arrow-right-s-line"></i></button>
+    
+    <!-- Corners -->
+    <button class="edge-pan-btn corner tl" data-direction="tl"><i class="ri-arrow-left-up-line"></i></button>
+    <button class="edge-pan-btn corner tr" data-direction="tr"><i class="ri-arrow-right-up-line"></i></button>
+    <button class="edge-pan-btn corner bl" data-direction="bl"><i class="ri-arrow-left-down-line"></i></button>
+    <button class="edge-pan-btn corner br" data-direction="br"><i class="ri-arrow-right-down-line"></i></button>
   </div>
 
   <script src="./renderer.js"></script>

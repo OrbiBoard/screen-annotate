@@ -35,7 +35,10 @@ module.exports = {
 
     ipcMain.on('annotate-minimize', (event) => {
       const win = BrowserWindow.fromWebContents(event.sender);
-      if (win) win.minimize();
+      if (win) {
+        win.hide();
+        win.setSkipTaskbar(true); // Ensure it's hidden from taskbar
+      }
     });
     
     ipcMain.on('annotate-save-image', async (event, dataUrl) => {
@@ -71,11 +74,8 @@ module.exports = {
                 console.log('Selected file:', filePaths[0]);
             }
         } else if (type === 'browser') {
-            require('electron').shell.openExternal('https://www.google.com');
+            event.reply('annotate-insert-media-reply', { type, path: null });
         } else if (type === 'link') {
-             // Just open a default link for now or handle in renderer prompt
-             // If we want to insert a link object, renderer should handle the prompt.
-             // If this IPC is just for triggering external actions:
              event.reply('annotate-insert-media-reply', { type, path: null }); 
         }
     });
@@ -108,7 +108,8 @@ module.exports = {
         webPreferences: {
           nodeIntegration: true,
           contextIsolation: false,
-          webSecurity: false
+          webSecurity: false,
+          webviewTag: true
         }
       });
 
@@ -122,6 +123,10 @@ module.exports = {
     openWhiteboard() {
       console.log('[ScreenAnnotate] openWhiteboard called');
       if (whiteboardWindow) {
+        if (!whiteboardWindow.isVisible()) {
+            whiteboardWindow.show();
+            whiteboardWindow.setSkipTaskbar(false);
+        }
         if (whiteboardWindow.isMinimized()) whiteboardWindow.restore();
         whiteboardWindow.focus();
         return;
@@ -134,7 +139,8 @@ module.exports = {
         webPreferences: {
           nodeIntegration: true,
           contextIsolation: false,
-          webSecurity: false
+          webSecurity: false,
+          webviewTag: true
         }
       });
 
