@@ -64,7 +64,7 @@ function updateDOMObjects() {
             wrapper.dataset.id = id;
             wrapper.dataset.src = obj.src; // Cache for check
             wrapper.dataset.type = obj.type; // Cache for check
-            document.body.appendChild(wrapper);
+            // document.body.appendChild(wrapper); // Moved below to ensure order
 
             // Render Content
             if (obj.type === 'link') {
@@ -75,6 +75,56 @@ function updateDOMObjects() {
                         require('electron').shell.openExternal(obj.src);
                     }
                 };
+            } else if (obj.type === 'text') {
+                // Text Object Rendering
+                wrapper.className = 'text-object-wrapper';
+                
+                // Content Editable Div for editing
+                const content = document.createElement('div');
+                content.className = 'text-object-content';
+                content.contentEditable = true; // Initially true? Or only on edit mode?
+                // Let's make it editable on double click or always?
+                // For better UX, always editable if selected?
+                // But dragging requires pointer events on wrapper.
+                // If contentEditable, dragging might select text.
+                // We'll use a mode switch or handle events.
+                
+                content.innerText = obj.text || '';
+                
+                // Apply Styles
+                content.style.fontSize = `${obj.fontSize}px`;
+                content.style.fontFamily = obj.fontFamily;
+                content.style.fontWeight = obj.bold ? 'bold' : 'normal';
+                content.style.fontStyle = obj.italic ? 'italic' : 'normal';
+                content.style.textDecoration = obj.underline ? 'underline' : 'none';
+                content.style.color = obj.color;
+                
+                wrapper.appendChild(content);
+                
+                // Add event listeners for text editing
+                // When editing, stop propagation to prevent dragging/selection changes
+                content.onpointerdown = (e) => {
+                    // If already selected, allow text selection/editing
+                    if (state.selectedStrokeIndices.includes(index)) {
+                        e.stopPropagation();
+                    }
+                    // Else, let wrapper handle selection first
+                };
+                
+                // Auto-update state on object
+                content.oninput = () => {
+                    obj.text = content.innerText;
+                    // Fix: Ensure w/h are initialized to prevent NaN
+                    if (!obj.w) obj.w = 0;
+                    if (!obj.h) obj.h = 0;
+                    
+                    obj.w = Math.max(obj.w, content.scrollWidth);
+                    obj.h = Math.max(obj.h, content.scrollHeight);
+                    wrapper.style.width = `${obj.w * state.camera.z}px`;
+                    wrapper.style.height = `${obj.h * state.camera.z}px`;
+                    selection.updateSelectionBounds();
+                };
+
             } else if (isActive && (obj.type === 'video' || obj.type === 'audio')) {
                 // Unified Media Creation Logic
                 const media = document.createElement(obj.type); // 'video' or 'audio'
@@ -85,6 +135,7 @@ function updateDOMObjects() {
                     media.style.width = '100%';
                     media.style.height = '100%';
                     media.style.background = 'black';
+                    media.style.pointerEvents = 'none'; // Ensure clicks go to wrapper for selection
                     wrapper.appendChild(media);
                     // selection.attachObjectListeners(media, obj, media); // Removed: Video has pointer-events: none, events go to wrapper
                 } else {
@@ -92,6 +143,7 @@ function updateDOMObjects() {
                     const card = document.createElement('div');
                     card.className = 'audio-playing-card';
                     card.innerHTML = `<i class="ri-music-line"></i><span>${obj.name}</span>`;
+                    card.style.pointerEvents = 'none'; // Ensure clicks go to wrapper
                     
                     media.style.display = 'none'; // Audio element is hidden
                     
@@ -132,6 +184,14 @@ function updateDOMObjects() {
 
         // Update Style / Position
         // Note: Fullscreen logic is now handled in updateFullscreenObjects, so here we only handle normal mode.
+        // Ensure wrapper is in DOM and in correct order
+        if (!wrapper.isConnected) {
+             document.body.appendChild(wrapper);
+        } else {
+             // Move to end to ensure stacking order matches array order
+             document.body.appendChild(wrapper);
+        }
+
         wrapper.style.position = 'absolute';
         wrapper.style.left = `${screenX}px`;
         wrapper.style.top = `${screenY}px`;
@@ -141,6 +201,13 @@ function updateDOMObjects() {
         wrapper.style.display = 'flex'; // Ensure visible
         wrapper.style.bottom = 'auto'; // Fix Issue 1: Prevent stretching
         wrapper.style.right = 'auto';  // Fix Issue 1: Prevent stretching
+        
+        // Apply Transforms (Rotation, Scale/Mirror)
+        const rotation = obj.rotation || 0;
+        const scaleX = obj.scaleX || 1;
+        const scaleY = obj.scaleY || 1;
+        wrapper.style.transform = `rotate(${rotation}rad) scaleX(${scaleX}) scaleY(${scaleY})`;
+        wrapper.style.transformOrigin = 'center center';
         
         // Always attach listeners (selection module handles deduplication)
         selection.attachObjectListeners(wrapper, obj);
@@ -344,8 +411,9 @@ function updateMediaControlsPosition(wrapper) {
         }
     
         // Simple heuristic: if controls are shown, push selection toolbar down
-        const controlsRect = controls.getBoundingClientRect();
-        selectionToolbar.style.top = `${controlsRect.bottom + 10}px`;
+        // Delegate positioning to selection module to avoid conflicts
+        // const controlsRect = controls.getBoundingClientRect();
+        // selectionToolbar.style.top = `${controlsRect.bottom + 10}px`;
     }
 }
 
@@ -575,10 +643,21 @@ function formatTime(seconds) {
 }
 
 function updateObjectInteraction() {
-    const isInteractive = state.currentTool === 'pen' || state.currentTool === 'eraser' || state.currentTool === 'pan';
+    // Fix for Issue 3: Shape and Select tools need canvas interaction
+    const isInteractive = state.currentTool === 'pen' || 
+                          state.currentTool === 'eraser' || 
+                          state.currentTool === 'pan' || 
+                          state.currentTool === 'shape' || 
+                          state.currentTool === 'select';
 
     if (isInteractive) {
-        canvasModule.canvas.style.pointerEvents = 'auto';
+        // Fix for Issue: Allow click-through to DOM objects in Select mode
+        // But keep 'auto' for other modes (Pen/Eraser) to capture input
+        if (state.currentTool === 'select') {
+            canvasModule.canvas.style.pointerEvents = 'none';
+        } else {
+            canvasModule.canvas.style.pointerEvents = 'auto';
+        }
     } else {
         canvasModule.canvas.style.pointerEvents = 'none';
     }

@@ -7,6 +7,41 @@
   --border: rgba(255, 255, 255, 0.12);
   --hover: rgba(255, 255, 255, 0.08);
   --active: rgba(35, 143, 74, 0.25);
+.color-picker-container {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    justify-content: center;
+}
+
+.thickness-slider-container {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    gap: 8px;
+    width: 100%;
+}
+
+.thickness-slider-container input[type="range"] {
+    flex: 1;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--slider-bg);
+    cursor: pointer;
+}
+
+.adjust-swatch {
+    width: 50px;
+    height: 50px;
+    border-radius: 8px;
+    border: 2px solid var(--border-color);
+    cursor: pointer;
+}
+
+.adjust-swatch:hover {
+    border-color: var(--primary-color);
+}
+
 }
 
 body {
@@ -100,6 +135,23 @@ body {
 .tool-btn:hover {
   background: var(--hover);
   color: var(--fg);
+}
+
+/* Toolbar Drag Handle */
+.toolbar-drag-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    cursor: grab;
+    color: var(--muted);
+    /* border-right: 1px solid var(--border); */
+    margin-right: 8px;
+    font-size: 18px;
+}
+.toolbar-drag-handle:active {
+    cursor: grabbing;
+    color: var(--fg);
 }
 
 .tool-btn.active {
@@ -278,55 +330,142 @@ body {
 
 /* Pan Menu Style */
 #pan-settings {
-    padding: 10px;
+    /* padding: 10px; */
     display: flex;
     gap: 8px;
-    background: var(--panel);
-    border-radius: 6px;
+    /* background: var(--panel); */
+    /* border-radius: 6px; */
 }
 /* Removed redundant selector since we now have .text-btn class */
 
-/* Shape Tool */
-.shape-header {
+/* Shape Status Popup */
+.shape-status-popup {
+  position: fixed;
+  bottom: 100px; /* Above toolbar */
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 16px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  justify-content: space-between;
+  gap: 16px;
+  z-index: 110;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  min-width: 400px;
+}
+
+.shape-status-left {
   font-size: 14px;
   font-weight: bold;
-}
-
-.shape-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-}
-
-.shape-btn {
-  background: none;
-  border: 1px solid var(--border);
   color: var(--fg);
-  border-radius: 4px;
-  padding: 8px;
-  cursor: pointer;
+  white-space: nowrap;
+}
+
+.shape-status-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+
+.step-indicator {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--input-bg);
+  color: var(--muted);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  font-size: 12px;
+  font-weight: bold;
+  border: 1px solid var(--border);
 }
 
-.shape-btn:hover {
-  background: rgba(255,255,255,0.1);
+.step-indicator.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
 }
 
-.shape-btn.active {
-  border-color: #1890ff;
-  background: rgba(24,144,255,0.2);
+.step-desc {
+  font-size: 12px;
+  color: var(--muted);
 }
 
-.shape-btn i {
-  font-size: 20px;
+.step-indicator.active + .step-desc {
+  color: var(--fg);
 }
+
+.step-line {
+  width: 20px;
+  height: 1px;
+  background: var(--border);
+}
+
+.shape-status-right {
+  display: flex;
+  align-items: center;
+}
+
+/* Shape Grid in Popup */
+#shape-settings {
+    /* padding: 12px;
+    background: var(--panel);
+    border-radius: 12px; */
+    /* Removed fixed width, will be set by JS to match toolbar */
+}
+
+.shape-btn-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.shape-btn-container:hover {
+    background: var(--hover);
+}
+
+.shape-btn-container.active {
+    background: var(--active);
+    border: 1px solid var(--accent);
+}
+
+.shape-btn-container i {
+    font-size: 24px;
+    color: var(--fg);
+}
+
+.shape-btn-container span {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+/* Modified Shape Grid to be cleaner */
+.shape-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr); /* More columns */
+  gap: 8px;
+}
+
+/* Override existing shape-btn */
+.shape-btn {
+    border: none;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
 
 /* Bottom Controls */
 .bottom-controls {
@@ -359,7 +498,7 @@ body {
   right: 20px;
   width: 315px; /* Matched to approximate controls width */
   max-height: 60vh;
-  background: rgba(22, 27, 34, 0.95); /* Ensure opacity */
+  background: var(--panel); /* Ensure opacity */
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
@@ -380,7 +519,7 @@ body {
 
 .page-preview-item {
   position: relative;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--item-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   aspect-ratio: 16/9;
@@ -425,18 +564,18 @@ body {
 .eraser-preset {
   border: 1px solid var(--border);
   border-radius: 50%;
-  background: rgba(255,255,255,0.2);
+  background: var(--slider-bg);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .eraser-preset:hover {
-  border-color: rgba(255,255,255,0.8);
+  border-color: var(--fg);
 }
 
 .eraser-preset.active {
   border-color: #1890ff;
-  background: rgba(255,255,255,0.2);
+  background: var(--slider-bg);
 }
 
 .separator-h {
@@ -499,17 +638,85 @@ body {
 }
 
 /* Selection Toolbar */
-.selection-toolbar {
+.selection-toolbar-container {
   position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* Center align rows */
+  z-index: 200;
+  pointer-events: auto;
+  /* transition: top 0.2s, left 0.2s; */
+}
+
+.selection-toolbar-row {
   display: flex;
   gap: 8px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px;
-  z-index: 200;
   backdrop-filter: blur(10px);
-  pointer-events: auto;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 100%;
+}
+
+.selection-toolbar-row.primary {
+  z-index: 2;
+  position: relative;
+}
+
+.selection-toolbar-row.secondary {
+  z-index: 1;
+  margin-top: -1px; /* Overlap borders */
+  border-top: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  background: var(--secondary-bg); /* Match panel but ensure opacity */
+  width: 100%; /* Match primary width */
+  justify-content: flex-start; /* Align content left */
+}
+
+/* Expanded State Styling */
+.selection-toolbar-container.expanded .selection-toolbar-row.primary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent; /* Merge visually */
+}
+
+.selection-menu-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg);
+    font-size: 16px;
+    font-weight: bold;
+    padding: 0 12px; /* Adjusted padding */
+    white-space: nowrap;
+    /* border-right: 1px solid var(--border); */
+    margin-right: 8px;
+    height: auto;
+    margin-left: 14px;
+}
+
+.selection-menu-header i {
+    font-size: 18px;
+    color: var(--fg);
+}
+
+.selection-menu-content {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex: 1;
+}
+
+.selection-menu-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    /* border-left: 1px solid var(--border); */
+    /* padding-left: 8px; */
 }
 
 /* Selection Overlay */
@@ -525,8 +732,8 @@ body {
 
 .selection-box-dom {
   position: absolute;
-  border: 1px dashed rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.05); /* Neutral tint */
+  border: 1px dashed var(--accent);
+  background: var(--hover); /* Neutral tint */
   pointer-events: auto; /* Catch clicks for moving */
   cursor: move;
 }
@@ -535,12 +742,35 @@ body {
   position: absolute;
   width: 12px;
   height: 12px;
-  background: white;
-  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: var(--panel);
+  border: 1px solid var(--fg);
   border-radius: 50%;
   pointer-events: auto;
   z-index: 30;
   transform: translate(-50%, -50%); /* Center on corner */
+}
+
+.rotate-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--panel);
+  border: 1px solid var(--fg);
+  border-radius: 50%;
+  pointer-events: auto;
+  z-index: 30;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+}
+
+.rotate-line {
+  position: absolute;
+  width: 1px;
+  background: var(--fg);
+  pointer-events: none;
+  z-index: 29;
+  transform: translateX(-50%);
+  border-left: 1px dashed var(--fg);
 }
 
 /* Media Placeholder Style */
@@ -846,7 +1076,19 @@ body {
   background: transparent; /* Fix for Issue 1: Let JS handle background */
 }
 
-/* Toggle Switch */
+/* Shape Header */
+.shape-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--fg);
+  padding: 0 4px;
+}
+
+/* Toggle Switch Style (Small) */
 .switch {
   position: relative;
   display: inline-block;
@@ -867,18 +1109,20 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: var(--border);
+  background-color: var(--slider-bg);
+  -webkit-transition: .4s;
   transition: .4s;
 }
 
 .slider:before {
   position: absolute;
   content: "";
-  height: 14px;
-  width: 14px;
-  left: 3px;
-  bottom: 3px;
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
   background-color: white;
+  -webkit-transition: .4s;
   transition: .4s;
 }
 
@@ -891,9 +1135,12 @@ input:focus + .slider {
 }
 
 input:checked + .slider:before {
+  -webkit-transform: translateX(16px);
+  -ms-transform: translateX(16px);
   transform: translateX(16px);
 }
 
+/* Rounded sliders */
 .slider.round {
   border-radius: 20px;
 }
@@ -978,7 +1225,7 @@ input:checked + .slider:before {
 }
 
 .modal-input {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px;
@@ -995,4 +1242,169 @@ input:checked + .slider:before {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* Text Edit Styles */
+.text-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.text-select {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  padding: 4px;
+  outline: none;
+  font-size: 12px;
+}
+
+.text-select option {
+  background: var(--panel);
+  color: var(--fg);
+}
+
+.text-object-wrapper {
+  position: absolute;
+  cursor: move;
+  z-index: 10;
+  user-select: none;
+  min-width: 50px;
+  min-height: 20px;
+  border: 1px dashed transparent; /* Hidden by default */
+  padding: 4px;
+}
+
+.text-object-wrapper.selected {
+  border-color: var(--accent);
+  background: rgba(35, 143, 74, 0.1);
+}
+
+.text-object-content {
+  width: 100%;
+  height: 100%;
+  outline: none;
+  background: transparent;
+  border: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Save Menu Popup */
+.save-popup {
+    position: fixed;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    z-index: 120;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.save-section {
+    margin-bottom: 0;
+}
+
+.save-label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-weight: bold;
+}
+
+.save-options {
+    display: flex;
+    gap: 8px;
+    background: var(--input-bg);
+    padding: 2px;
+    border-radius: 6px;
+}
+
+.save-opt-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    padding: 6px 0;
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.save-opt-btn:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.save-opt-btn.active {
+    background: var(--accent);
+    color: white;
+}
+
+.save-path-row {
+    display: flex;
+    gap: 8px;
+}
+
+#save-path-input {
+    flex: 1;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--fg);
+    font-size: 12px;
+    outline: none;
+}
+
+.save-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.tool-btn.primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.tool-btn.primary:hover {
+    background: #2ab05a;
+}
+
+/* Mode Toast */
+.mode-toast {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 16px;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+}
+
+.mode-toast.visible {
+    opacity: 1;
 }

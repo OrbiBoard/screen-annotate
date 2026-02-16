@@ -1,85 +1,133 @@
 const state = {
-    pages: [[]], // Array of strokes for each page
-    pageBackgrounds: ['var(--bg)'], // Fix for Issue 1: Store background per page
-    pageSnapshots: [], // Cache of dataURLs for previews
-    currentPageIndex: 0,
-    redoStack: [], // For current page
+    // --- Whiteboard State ---
+    whiteboard: {
+        pages: [[]],
+        pageBackgrounds: ['var(--bg)'],
+        pageSnapshots: [],
+        currentPageIndex: 0,
+        camera: { x: 0, y: 0, z: 1 },
+        history: [], // Separate history for whiteboard
+        historyIndex: -1
+    },
+
+    // --- Annotate State ---
+    annotate: {
+        strokes: [], // Single page for annotation
+        camera: { x: 0, y: 0, z: 1 },
+        history: [], // Separate history for annotation
+        historyIndex: -1
+    },
+
+    // --- Shared/Transient State ---
+    // (Used by interaction logic, cleared on tool switch usually)
     isDrawing: false,
+    drawStartTime: 0,
+    drawStartPoint: { x: 0, y: 0 },
     currentPoints: [],
-    selectedStrokeIndices: [], // Array of indices for multi-selection
-    lassoPoints: [], // For Lasso Selection
-    mousePos: { x: -100, y: -100 }, // For Eraser Cursor
+    selectedStrokeIndices: [], 
+    lassoPoints: [],
+    mousePos: { x: -100, y: -100 },
     isMenuOpen: false,
     isMovingSelection: false,
     isResizingSelection: false,
-    resizeHandleIndex: -1, // 0: TL, 1: TR, 2: BR, 3: BL
-    selectionBounds: null, // {x, y, w, h}
-    originalSelectionStrokes: null, // Snapshot for resizing/moving
-    selectionHandles: [], // Array of DOM elements for handles
+    isRotatingSelection: false,
+    rotationHandleIndex: -1,
+    resizeHandleIndex: -1,
+    selectionBounds: null,
+    originalSelectionStrokes: null,
+    selectionHandles: [],
     
+    // Theme State
+    themeMode: 'system',
+    themeColor: '#238f4a',
+
     // Tool State
-    currentTool: 'pen', // 'pen', 'eraser', 'select', 'pan'
+    currentTool: 'pen', 
     penColor: '#ffffff',
-    penSize: 6, // Fix: Default size 6
-    penTaper: true, // Fix: Default taper on
-    eraserType: 'point', // 'stroke' or 'point'
-    currentShape: 'rect', // default shape
-    isShapePinned: false, // is shape window pinned
-    pendingShape: null, // for multi-step shapes
+    penSize: 6,
+    penTaper: true,
+    eraserType: 'point',
+    currentShape: null,
+    isShapePinned: false,
+    pendingShape: null,
     eraserSize: 100,
     
-    // Camera (Pan/Zoom)
-    camera: { x: 0, y: 0, z: 1 },
-    isPanning: false,
-    panStart: { x: 0, y: 0 },
-    // Fix: Track pan offset for accurate subsequent drawing
-    // Actually camera x/y IS the offset. 
-    // But issue description says: "after pan, ink moves, but new writing has offset error".
-    // This usually means input coordinates are not being transformed by camera correctly.
-    // In renderer.js: 
-    // const point = utils.getPoint(e); 
-    // utils.getPoint uses (e.clientX - camera.x) / camera.z. 
-    // If camera updates correctly, point should be correct world coord.
-    // Let's check utils.js.
-
+    // Text Tool State
+    textSettings: {
+        fontSize: 24,
+        fontFamily: 'Arial',
+        bold: false,
+        italic: false,
+        underline: false,
+        color: '#ffffff'
+    },
+    
     // Active Media (for playback)
-    activeMedia: null, // { index: number, el: DOMElement, timeout: Timer }
+    activeMedia: null,
 
-    // Fullscreen Mode
+    // Fullscreen Video Mode (Transient Overlay)
     fullscreen: {
         active: false,
-        strokes: [], // Strokes drawn on top of fullscreen video
+        strokes: [],
         camera: { x: 0, y: 0, z: 1 },
-        videoId: null, // Index of the video element in the original page
-        originalParent: null, // To restore video
-        redoStack: [] // Separate redo stack
+        videoId: null,
+        originalParent: null,
+        history: [], // Separate history
+        historyIndex: -1
+    },
+
+    // Screenshot Mode State
+    screenshot: {
+        active: false,
+        start: null,
+        end: null
     },
 
     // Initial Mode
     MODE: new URLSearchParams(window.location.search).get('mode') || 'whiteboard',
 
-    // Helper to get current strokes
+    // --- Accessors ---
+
+    // Get active strokes array
     getActiveStrokes() {
-        if (this.fullscreen.active) {
-            return this.fullscreen.strokes;
-        }
-        return this.pages[this.currentPageIndex];
+        if (this.fullscreen.active) return this.fullscreen.strokes;
+        if (this.MODE === 'annotate') return this.annotate.strokes;
+        return this.whiteboard.pages[this.whiteboard.currentPageIndex];
     },
 
-    // Helper to get active camera
+    // Get active camera
     getActiveCamera() {
-        if (this.fullscreen.active) {
-            return this.fullscreen.camera;
-        }
-        return this.camera;
+        if (this.fullscreen.active) return this.fullscreen.camera;
+        if (this.MODE === 'annotate') return this.annotate.camera;
+        return this.whiteboard.camera;
     },
 
-    // Helper to get active redo stack
-    getActiveRedoStack() {
-        if (this.fullscreen.active) {
-            return this.fullscreen.redoStack;
-        }
-        return this.redoStack;
+    // Get active history
+    getActiveHistory() {
+        // Return object { stack, index } wrapper? 
+        // Or just return the array reference and we manage index manually?
+        // History module manages index. We need to point it to the right place.
+        // Let's return the state object that CONTAINS history and historyIndex.
+        if (this.fullscreen.active) return this.fullscreen;
+        if (this.MODE === 'annotate') return this.annotate;
+        return this.whiteboard;
+    },
+
+    // Backwards compatibility accessors (proxies)
+    get pages() { return this.whiteboard.pages; },
+    set pages(v) { this.whiteboard.pages = v; },
+    
+    get pageBackgrounds() { return this.whiteboard.pageBackgrounds; },
+    get pageSnapshots() { return this.whiteboard.pageSnapshots; },
+    
+    get currentPageIndex() { return this.whiteboard.currentPageIndex; },
+    set currentPageIndex(v) { this.whiteboard.currentPageIndex = v; },
+    
+    get camera() { return this.getActiveCamera(); },
+    set camera(v) { 
+        if (this.fullscreen.active) this.fullscreen.camera = v;
+        else if (this.MODE === 'annotate') this.annotate.camera = v;
+        else this.whiteboard.camera = v;
     }
 };
 

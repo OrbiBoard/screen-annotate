@@ -61,25 +61,62 @@
   <div id="shape-settings" class="settings-group" style="display: none;">
       <div class="shape-header">
           <span>选择形状</span>
-          <button class="icon-only-btn" id="btn-shape-pin" title="固定窗口">
-              <i class="ri-pushpin-line"></i>
-          </button>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label class="switch" style="transform: scale(0.8);">
+                <input type="checkbox" id="shape-pin-toggle">
+                <span class="slider round"></span>
+            </label>
+            <span style="font-size: 12px;">连续绘制</span>
+          </div>
       </div>
       <div class="shape-grid">
           <!-- 2D Shapes -->
-          <button class="shape-btn" data-shape="line" title="直线"><i class="ri-subtract-line"></i></button>
-          <button class="shape-btn" data-shape="arrow" title="单箭头"><i class="ri-arrow-right-line"></i></button>
-          <button class="shape-btn" data-shape="double-arrow" title="双箭头"><i class="ri-arrow-left-right-line"></i></button>
-          <button class="shape-btn" data-shape="rect" title="矩形"><i class="ri-checkbox-blank-line"></i></button>
-          <button class="shape-btn" data-shape="square" title="正方形"><i class="ri-stop-line"></i></button>
-          <button class="shape-btn" data-shape="triangle" title="三角形"><i class="ri-play-line" style="transform: rotate(-90deg);"></i></button>
-          <button class="shape-btn" data-shape="circle" title="圆形"><i class="ri-checkbox-blank-circle-line"></i></button>
-          <button class="shape-btn" data-shape="ellipse" title="椭圆"><i class="ri-loader-3-line"></i></button> <!-- Approximation -->
+          <div class="shape-btn-container" data-shape="line">
+              <i class="ri-subtract-line"></i><span>直线</span>
+          </div>
+          <div class="shape-btn-container" data-shape="arrow">
+              <i class="ri-arrow-right-line"></i><span>单箭头</span>
+          </div>
+          <div class="shape-btn-container" data-shape="double-arrow">
+              <i class="ri-arrow-left-right-line"></i><span>双箭头</span>
+          </div>
+          <div class="shape-btn-container" data-shape="rect">
+              <i class="ri-checkbox-blank-line"></i><span>矩形</span>
+          </div>
+          <div class="shape-btn-container" data-shape="square">
+              <i class="ri-stop-line"></i><span>正方形</span>
+          </div>
+          <div class="shape-btn-container" data-shape="triangle">
+              <i class="ri-play-line" style="transform: rotate(-90deg);"></i><span>三角形</span>
+          </div>
+          <div class="shape-btn-container" data-shape="circle">
+              <i class="ri-checkbox-blank-circle-line"></i><span>圆形</span>
+          </div>
+          <div class="shape-btn-container" data-shape="ellipse">
+              <i class="ri-loader-3-line"></i><span>椭圆</span>
+          </div>
+          <div class="shape-btn-container" data-shape="parallelogram">
+              <i class="ri-shape-2-line"></i><span>平行四边形</span>
+          </div>
+          <div class="shape-btn-container" data-shape="pentagon">
+              <i class="ri-pentagon-line"></i><span>五边形</span>
+          </div>
+          <div class="shape-btn-container" data-shape="hexagon">
+              <i class="ri-hexagon-line"></i><span>六边形</span>
+          </div>
           <!-- 3D / Complex -->
-          <button class="shape-btn" data-shape="cuboid" title="长方体"><i class="ri-inbox-line"></i></button>
-          <button class="shape-btn" data-shape="cone" title="圆锥"><i class="ri-filter-3-line"></i></button> <!-- Approx -->
-          <button class="shape-btn" data-shape="axis-xy" title="XY坐标轴"><i class="ri-ruler-line"></i></button>
-          <button class="shape-btn" data-shape="axis-xyz" title="XYZ坐标轴"><i class="ri-compass-3-line"></i></button>
+          <div class="shape-btn-container" data-shape="cuboid">
+              <i class="ri-inbox-line"></i><span>长方体</span>
+          </div>
+          <div class="shape-btn-container" data-shape="cone">
+              <i class="ri-filter-3-line"></i><span>圆锥</span>
+          </div>
+          <div class="shape-btn-container" data-shape="axis-xy">
+              <i class="ri-ruler-line"></i><span>XY轴</span>
+          </div>
+          <div class="shape-btn-container" data-shape="axis-xyz">
+              <i class="ri-compass-3-line"></i><span>XYZ轴</span>
+          </div>
       </div>
   </div>
   </div>
@@ -113,6 +150,26 @@
       <i class="ri-add-line"></i>
       <span>插入</span>
     </button>
+  </div>
+
+  <!-- Shape Status Popup (Top of Toolbar) -->
+  <div id="shape-status-popup" class="shape-status-popup" style="display: none;">
+      <div class="shape-status-left">
+          <span id="shape-status-text">绘制“矩形”</span>
+      </div>
+      <div class="shape-status-center">
+          <!-- Steps injected here -->
+          <div class="step-indicator active">1</div>
+          <span class="step-desc">确定起点</span>
+          <div class="step-line"></div>
+          <div class="step-indicator">2</div>
+          <span class="step-desc">确定终点</span>
+      </div>
+      <div class="shape-status-right">
+          <button class="text-btn small" id="btn-change-shape">
+              <i class="ri-shape-line"></i> 更改形状
+          </button>
+      </div>
   </div>
 
   <div class="toolbar-container">
@@ -200,7 +257,45 @@
        <button class="text-btn small" id="btn-insert-link" style="justify-content: flex-start;">
          <i class="ri-link"></i> 超链接
        </button>
+       <button class="text-btn small" id="btn-insert-text" style="justify-content: flex-start;">
+         <i class="ri-text"></i> 文本组件
+       </button>
+       <button class="text-btn small" id="btn-insert-screenshot" style="justify-content: flex-start;">
+         <i class="ri-screenshot-2-line"></i> 从桌面截图
+       </button>
     </div>
+  </div>
+
+  <!-- Text Edit Popup -->
+  <div id="text-edit-popup" class="tool-settings-popup" style="display: none;">
+      <div class="settings-group">
+          <div class="text-edit-row">
+              <select id="text-font-family" class="text-select">
+                  <option value="Arial">Arial</option>
+                  <option value="Times New Roman">Times New Roman</option>
+                  <option value="Microsoft YaHei">微软雅黑</option>
+                  <option value="SimSun">宋体</option>
+                  <option value="KaiTi">楷体</option>
+              </select>
+              <select id="text-font-size" class="text-select" style="width: 60px;">
+                  <option value="12">12</option>
+                  <option value="14">14</option>
+                  <option value="18">18</option>
+                  <option value="24" selected>24</option>
+                  <option value="36">36</option>
+                  <option value="48">48</option>
+                  <option value="72">72</option>
+              </select>
+          </div>
+          <div class="text-edit-row">
+              <button class="icon-only-btn" id="btn-text-bold" title="加粗"><i class="ri-bold"></i></button>
+              <button class="icon-only-btn" id="btn-text-italic" title="斜体"><i class="ri-italic"></i></button>
+              <button class="icon-only-btn" id="btn-text-underline" title="下划线"><i class="ri-underline"></i></button>
+              <input type="color" id="text-color" value="#ffffff" style="width: 24px; height: 24px; border: none; padding: 0;">
+          </div>
+          <div class="separator-h"></div>
+          <textarea id="text-content-input" rows="3" style="width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px; resize: vertical;"></textarea>
+      </div>
   </div>
 
   <!-- Modal Dialog for Input -->
@@ -256,6 +351,17 @@
     <button class="edge-pan-btn corner tr" data-direction="tr"><i class="ri-arrow-right-up-line"></i></button>
     <button class="edge-pan-btn corner bl" data-direction="bl"><i class="ri-arrow-left-down-line"></i></button>
     <button class="edge-pan-btn corner br" data-direction="br"><i class="ri-arrow-right-down-line"></i></button>
+  </div>
+
+  <!-- Screenshot UI -->
+  <div id="screenshot-mask" style="display: none;"></div>
+  <div id="screenshot-minibar" class="minibar" style="display: none;">
+      <div class="minibar-drag-handle"><i class="ri-drag-move-2-fill"></i></div>
+      <div class="minibar-content">
+          <button id="btn-shot-full" class="tool-btn small">全屏截图</button>
+          <button id="btn-shot-confirm" class="tool-btn small primary">确认</button>
+          <button id="btn-shot-reselect" class="tool-btn small">重新选择</button>
+      </div>
   </div>
 
   <script src="./renderer.js"></script>

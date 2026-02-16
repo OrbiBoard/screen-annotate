@@ -1,6 +1,7 @@
 const { getStroke } = require('perfect-freehand');
 const state = require('./state');
 const utils = require('./utils');
+const shapesModule = require('./shapes');
 
 const canvas = document.getElementById('canvas-layer');
 const ctx = canvas.getContext('2d');
@@ -27,27 +28,83 @@ function renderCanvas() {
   const strokes = state.getActiveStrokes();
   strokes.forEach(stroke => {
       if (stroke.type === 'pen') {
-        drawStroke(stroke);
+        drawStroke(stroke);     
       } else if (stroke.type === 'shape') {
-        drawShape(stroke);
+        shapesModule.drawShape(ctx, stroke);
+      } else if (stroke.type === 'image') {
+        drawImageObj(stroke); // Render images on canvas (z-index below DOM objects)
+        // Wait, images are DOM objects now? 
+        // In objects.js, we create DOM wrappers for 'image'? 
+        // No, objects.js handles 'video', 'audio', 'browser', 'link', 'text'.
+        // 'image' type is NOT handled in updateDOMObjects loop in objects.js (unless we add it).
+        // Check objects.js: if (!['video', 'audio', 'browser', 'link', 'text'].includes(obj.type)) return;
+        // So images are NOT DOM objects currently?
+        // But drawImageObj exists here.
+        // And IPC handler in renderer.js pushes 'image' type stroke.
+        // So images are canvas-drawn.
+        // But the user said "图片无法正确插入" (Image cannot be inserted correctly).
+        // If it's canvas drawn, maybe drawImageObj is failing or image not loaded?
+        // Ah, `img` property is an Image object. If it's not loaded when render called?
+        // renderer.js: img.onload = ... strokes.push(obj); renderCanvas();
+        // So it should be loaded.
+        // Let's check drawImageObj implementation.
       }
-      // Note: Images/Videos are DOM objects, not rendered on canvas
   });
 
-  // 1.5 Render Pending Shape (between steps)
-  if (state.pendingShape && !state.isDrawing) {
-      const shape = {
-          type: 'shape',
-          shapeType: state.currentShape,
-          start: state.pendingShape.start,
-          end: state.pendingShape.end,
-          color: state.penColor,
-          size: state.penSize
-      };
-      drawShape(shape);
+  // 1.5 Render Pending Shape (between steps) OR Shape Preview
+  if (state.currentTool === 'shape' && (state.isDrawing || state.pendingShape)) {
+      // Transform mouse pos to world
+      const camera = state.getActiveCamera();
+      // Ensure mousePos is valid
+      if (state.mousePos) {
+        const mx = (state.mousePos.x - camera.x) / camera.z;
+        const my = (state.mousePos.y - camera.y) / camera.z;
+        
+        let shape;
+        
+        if (state.pendingShape) {
+            // Step 2: Adjust depth/height
+             let dEnd = { x: mx, y: my };
+             
+             if (state.currentShape === 'axis-xy' || state.currentShape === 'axis-xyz') {
+                 // Snap to perpendicular relative to first axis
+                 dEnd = shapesModule.snapToPerpendicular(state.pendingShape.start, state.pendingShape.end, dEnd);
+             } else if (state.currentShape === 'cuboid') {
+                 // Snap to vertical (relative to horizontal)
+                 // Reference: Horizontal line from start
+                 const ref = { x: state.pendingShape.start.x + 1, y: state.pendingShape.start.y };
+                 dEnd = shapesModule.snapToPerpendicular(state.pendingShape.start, ref, dEnd);
+             }
+             
+             shape = {
+                 type: 'shape',
+                 shapeType: state.currentShape,
+                 start: state.pendingShape.start,
+                 end: state.pendingShape.end,
+                 color: state.penColor,
+                 size: state.penSize,
+                 depthEnd: dEnd,
+                 step: 2
+             };
+        } else if (state.isDrawing && state.shapeStart) {
+             // Step 1: Dragging to draw base
+             shape = {
+                 type: 'shape',
+                 shapeType: state.currentShape,
+                 start: state.shapeStart,
+                 end: { x: mx, y: my },
+                 color: state.penColor,
+                 size: state.penSize
+             };
+        }
+        
+        if (shape) {
+            shapesModule.drawShape(ctx, shape);
+        }
+      }
   }
 
-  // 2. Render Current Drawing Stroke (Preview)
+  // 2. Render Current Drawing Stroke (Pen Preview)
   if (state.isDrawing) {
       if (state.currentTool === 'pen') {
         const previewStroke = {
@@ -57,30 +114,8 @@ function renderCanvas() {
           taper: state.penTaper
         };
         drawStroke(previewStroke);
-      } else if (state.currentTool === 'shape') {
-         // Transform mouse pos to world
-         const mx = (state.mousePos.x - camera.x) / camera.z;
-         const my = (state.mousePos.y - camera.y) / camera.z;
-         
-         const shape = {
-             type: 'shape',
-             shapeType: state.currentShape,
-             start: state.shapeStart,
-             end: { x: mx, y: my },
-             color: state.penColor,
-             size: state.penSize
-         };
-         
-         // If 2-step shape and step 2
-         if (state.pendingShape) {
-             shape.start = state.pendingShape.start;
-             shape.end = state.pendingShape.end;
-             shape.depthEnd = { x: mx, y: my }; // Current mouse is depth end
-             shape.step = 2;
-         }
-         
-         drawShape(shape);
-      }
+      } 
+      // Shape handled above
   }
 
   // 3. Render Selection Box (if active)
@@ -124,7 +159,7 @@ function renderCanvas() {
   // Update Canvas Z-Index based on Tool and Fullscreen Browser
   const fsBrowser = document.getElementById('fullscreen-browser-layer');
   if (fsBrowser && fsBrowser.style.display !== 'none') {
-      if (state.currentTool === 'pen' || state.currentTool === 'eraser') {
+      if (state.currentTool === 'pen' || state.currentTool === 'eraser' || state.currentTool === 'shape') {
           canvas.style.zIndex = '95'; // Above browser (90) but below toolbar (100)
           canvas.style.pointerEvents = 'auto'; // Capture events
       } else {
@@ -143,15 +178,38 @@ function renderCanvas() {
 function drawImageObj(obj, isSelected = false) {
     if (!obj.img) return;
     try {
-        ctx.drawImage(obj.img, obj.x, obj.y, obj.w, obj.h);
-        if (isSelected) {
-            ctx.save();
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
-            ctx.strokeRect(obj.x, obj.y, obj.w, obj.h);
-            ctx.restore();
+        ctx.save();
+        
+        // Transform
+        const rotation = obj.rotation || 0;
+        const scaleX = obj.scaleX || 1;
+        const scaleY = obj.scaleY || 1;
+        
+        if (rotation !== 0 || scaleX !== 1 || scaleY !== 1) {
+            const cx = obj.x + obj.w / 2;
+            const cy = obj.y + obj.h / 2;
+            ctx.translate(cx, cy);
+            ctx.rotate(rotation);
+            ctx.scale(scaleX, scaleY);
+            ctx.drawImage(obj.img, -obj.w / 2, -obj.h / 2, obj.w, obj.h);
+            
+            if (isSelected) {
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+            }
+        } else {
+            ctx.drawImage(obj.img, obj.x, obj.y, obj.w, obj.h);
+            if (isSelected) {
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(obj.x, obj.y, obj.w, obj.h);
+            }
         }
+        
+        ctx.restore();
     } catch (e) {
         console.error('Error drawing image:', e);
     }
@@ -165,8 +223,8 @@ function drawStroke(stroke, isSelected = false) {
   const outlinePoints = getStroke(points, {
     size: taper ? size : Math.max(1, size - 1), // Fix: Reduce size if no taper
     thinning: taper ? 0.7 : 0,
-    smoothing: 0.5,
-    streamline: 0.5,
+    smoothing: stroke.smoothing !== undefined ? stroke.smoothing : 0.5,
+    streamline: stroke.streamline !== undefined ? stroke.streamline : 0.5,
     start: { taper: taper ? size : 0, easing: (t) => t },
     end: { taper: taper ? size : 0, easing: (t) => t }
   });
@@ -199,180 +257,6 @@ function drawStroke(stroke, isSelected = false) {
   ctx.restore();
 }
 
-function drawShape(stroke) {
-    const { shapeType, start, end, color, size, depthEnd } = stroke;
-    if (!start || !end) return;
-
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = size;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-
-    const w = end.x - start.x;
-    const h = end.y - start.y;
-
-    if (shapeType === 'rect') {
-        ctx.rect(start.x, start.y, w, h);
-    } else if (shapeType === 'square') {
-        const s = Math.max(Math.abs(w), Math.abs(h));
-        const sx = w < 0 ? -s : s;
-        const sy = h < 0 ? -s : s;
-        ctx.rect(start.x, start.y, sx, sy);
-    } else if (shapeType === 'circle') {
-        const r = Math.sqrt(w*w + h*h) / 2;
-        const cx = start.x + w/2;
-        const cy = start.y + h/2;
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, Math.abs(w/2), Math.abs(h/2), 0, 0, Math.PI * 2);
-        // Force circle if Shift? Or separate tool? 
-        // User asked for "Circle" and "Ellipse".
-        // For "Circle", width determines diameter? Or diagonal?
-        // Let's implement 'circle' as perfect circle based on max dimension
-    } else if (shapeType === 'triangle') {
-        ctx.moveTo(start.x + w/2, start.y);
-        ctx.lineTo(start.x, start.y + h);
-        ctx.lineTo(start.x + w, start.y + h);
-        ctx.closePath();
-    } else if (shapeType === 'line') {
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-    } else if (shapeType === 'arrow' || shapeType === 'double-arrow') {
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        
-        const angle = Math.atan2(end.y - start.y, end.x - start.x);
-        const headLen = size * 3;
-        
-        // End arrow
-        ctx.moveTo(end.x, end.y);
-        ctx.lineTo(end.x - headLen * Math.cos(angle - Math.PI / 6), end.y - headLen * Math.sin(angle - Math.PI / 6));
-        ctx.moveTo(end.x, end.y);
-        ctx.lineTo(end.x - headLen * Math.cos(angle + Math.PI / 6), end.y - headLen * Math.sin(angle + Math.PI / 6));
-        
-        if (shapeType === 'double-arrow') {
-            // Start arrow
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(start.x + headLen * Math.cos(angle - Math.PI / 6), start.y + headLen * Math.sin(angle - Math.PI / 6));
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(start.x + headLen * Math.cos(angle + Math.PI / 6), start.y + headLen * Math.sin(angle + Math.PI / 6));
-        }
-    } else if (shapeType === 'cuboid') {
-        // Front face
-        ctx.rect(start.x, start.y, w, h);
-        
-        if (depthEnd) {
-            const dx = depthEnd.x - end.x; // Vector from end of rect to depth point?
-            // Actually user drags depth. Let's say depthEnd is the offset vector relative to end?
-            // Or depthEnd is the absolute position of the back face's corresponding corner.
-            // If drawing step 2, depthEnd is mouse pos.
-            // If step 1 (preview), depthEnd is undefined.
-            
-            // Let's assume depthEnd is the position of the back-bottom-right corner?
-            // Or easier: depth is vector (depthEnd - end).
-            // But wait, step 1 defined Rect(start, end).
-            // Step 2 starts at 'end' (or where mouse up happened) and drags to 'depthEnd'.
-            
-            const depthX = depthEnd.x - (stroke.step === 2 ? stroke.end.x : stroke.end.x); // Wait, logic in renderer needs to handle this
-            const depthY = depthEnd.y - (stroke.step === 2 ? stroke.end.y : stroke.end.y);
-            
-            // Actually, let's simplify:
-            // depthEnd is the absolute position of the "back corner".
-            // The vector is V = depthEnd - end.
-            
-            // Back face
-            const bx = start.x + (depthEnd.x - end.x);
-            const by = start.y + (depthEnd.y - end.y);
-            
-            ctx.rect(bx, by, w, h);
-            
-            // Connectors
-            ctx.moveTo(start.x, start.y); ctx.lineTo(bx, by);
-            ctx.moveTo(start.x + w, start.y); ctx.lineTo(bx + w, by);
-            ctx.moveTo(start.x, start.y + h); ctx.lineTo(bx, by + h);
-            ctx.moveTo(start.x + w, start.y + h); ctx.lineTo(bx + w, by + h);
-        }
-    } else if (shapeType === 'cone') {
-        // Base ellipse
-        const cx = start.x + w/2;
-        const cy = start.y + h/2;
-        const rx = Math.abs(w/2);
-        const ry = Math.abs(h/2);
-        
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        
-        if (depthEnd) {
-            // depthEnd is apex
-            const apex = depthEnd;
-            
-            // Draw lines from tangent points on ellipse to apex
-            // Simplified: Draw from left/right extremes?
-            // Correct way: Tangent lines.
-            // Approximation: Line from (cx-rx, cy) and (cx+rx, cy) to apex?
-            // This works if apex is vertically aligned or close.
-            ctx.beginPath();
-            ctx.moveTo(cx - rx, cy);
-            ctx.lineTo(apex.x, apex.y);
-            ctx.lineTo(cx + rx, cy);
-            ctx.stroke();
-        }
-    } else if (shapeType === 'axis-xy') {
-        // Step 1: X axis. Start -> End.
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        // Arrow for X
-        const angle = Math.atan2(end.y - start.y, end.x - start.x);
-        const headLen = size * 3;
-        ctx.moveTo(end.x, end.y);
-        ctx.lineTo(end.x - headLen * Math.cos(angle - Math.PI / 6), end.y - headLen * Math.sin(angle - Math.PI / 6));
-        ctx.moveTo(end.x, end.y);
-        ctx.lineTo(end.x - headLen * Math.cos(angle + Math.PI / 6), end.y - headLen * Math.sin(angle + Math.PI / 6));
-        
-        // Label X?
-        
-        if (depthEnd) {
-            // Step 2: Y axis. Start -> DepthEnd.
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(depthEnd.x, depthEnd.y);
-            // Arrow for Y
-            const angleY = Math.atan2(depthEnd.y - start.y, depthEnd.x - start.x);
-            ctx.moveTo(depthEnd.x, depthEnd.y);
-            ctx.lineTo(depthEnd.x - headLen * Math.cos(angleY - Math.PI / 6), depthEnd.y - headLen * Math.sin(angleY - Math.PI / 6));
-            ctx.moveTo(depthEnd.x, depthEnd.y);
-            ctx.lineTo(depthEnd.x - headLen * Math.cos(angleY + Math.PI / 6), depthEnd.y - headLen * Math.sin(angleY + Math.PI / 6));
-        }
-    } else if (shapeType === 'axis-xyz') {
-        // Similar to XY but add Z?
-        // User said: "xyz坐标轴"
-        // Let's implement same as XY for now, maybe add Z auto?
-        // Or 3 steps.
-        // Let's assume 2 steps: X and Y, Z is auto-calculated cross product or just vertical up?
-        // If 2 steps:
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y); // X
-        // ... arrow X ...
-        
-        if (depthEnd) {
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(depthEnd.x, depthEnd.y); // Y
-            // ... arrow Y ...
-            
-            // Z Axis (Auto? Up?)
-            // Let's draw Z up by default length
-            const len = Math.sqrt(w*w + h*h); // Use length of X?
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(start.x, start.y - len);
-             // ... arrow Z ...
-        }
-    }
-
-    ctx.stroke();
-    ctx.restore();
-}
-
 function performEraserAction(point) {
     const strokes = state.getActiveStrokes();
     const camera = state.getActiveCamera();
@@ -384,6 +268,31 @@ function performEraserAction(point) {
 
     for (let i = strokes.length - 1; i >= 0; i--) {
         const stroke = strokes[i];
+        if (stroke.type === 'shape') {
+             // Check intersection with eraser circle
+             if (utils.isEraserHittingShape(stroke, eraserCenter, threshold)) {
+                 // Automatically convert and erase (Fix for Issue 2)
+                 const shapes = require('./shapes');
+                 const objects = require('./objects');
+                 
+                 const currentStrokes = state.getActiveStrokes();
+                 
+                 // Find stroke index again to be safe
+                 const idx = currentStrokes.indexOf(stroke);
+                 if (idx === -1) return;
+
+                 const newStrokes = shapes.convertShapeToStrokes(stroke);
+                 currentStrokes.splice(idx, 1, ...newStrokes);
+                 
+                 // Adjust loop index to process new strokes immediately
+                 i += newStrokes.length;
+                 
+                 // Continue loop to process these new strokes with eraser
+                 continue;
+             }
+             continue;
+        }
+
         if (stroke.type !== 'pen') continue; 
         
         let newStrokes = [];
