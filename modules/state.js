@@ -18,6 +18,14 @@ const state = {
         historyIndex: -1
     },
 
+    // --- Booth State ---
+    booth: {
+        strokes: [],
+        camera: { x: 0, y: 0, z: 1 },
+        history: [],
+        historyIndex: -1
+    },
+
     // --- Shared/Transient State ---
     // (Used by interaction logic, cleared on tool switch usually)
     isDrawing: false,
@@ -92,6 +100,7 @@ const state = {
     getActiveStrokes() {
         if (this.fullscreen.active) return this.fullscreen.strokes;
         if (this.MODE === 'annotate') return this.annotate.strokes;
+        if (this.MODE === 'booth') return this.booth.strokes;
         return this.whiteboard.pages[this.whiteboard.currentPageIndex];
     },
 
@@ -99,17 +108,15 @@ const state = {
     getActiveCamera() {
         if (this.fullscreen.active) return this.fullscreen.camera;
         if (this.MODE === 'annotate') return this.annotate.camera;
+        if (this.MODE === 'booth') return this.booth.camera;
         return this.whiteboard.camera;
     },
 
     // Get active history
     getActiveHistory() {
-        // Return object { stack, index } wrapper? 
-        // Or just return the array reference and we manage index manually?
-        // History module manages index. We need to point it to the right place.
-        // Let's return the state object that CONTAINS history and historyIndex.
         if (this.fullscreen.active) return this.fullscreen;
         if (this.MODE === 'annotate') return this.annotate;
+        if (this.MODE === 'booth') return this.booth;
         return this.whiteboard;
     },
 

@@ -24,6 +24,14 @@ module.exports = {
     cleanupListeners();
 
     // Register IPC handlers
+    ipcMain.handle('annotate-get-screen-info', () => {
+        const primaryDisplay = screen.getPrimaryDisplay();
+        return {
+            bounds: primaryDisplay.bounds,
+            workArea: primaryDisplay.workArea
+        };
+    });
+
     ipcMain.on('annotate-get-theme-config', (event) => {
         if (pluginApi && pluginApi.theme) {
             const res = pluginApi.theme.get();
@@ -175,7 +183,16 @@ module.exports = {
         }
     });
 
-    ipcMain.handle('annotate-capture-screen', async (event, { rect, full }) => {
+    ipcMain.handle('annotate-capture-screen', async (event, { rect, full, hideWindow }) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        const wasVisible = win.isVisible();
+        
+        if (hideWindow && wasVisible) {
+            win.hide();
+            // Wait for repaint
+            await new Promise(r => setTimeout(r, 200)); 
+        }
+
         try {
             const sources = await require('electron').desktopCapturer.getSources({
                 types: ['screen'],
@@ -184,6 +201,11 @@ module.exports = {
             let source = sources[0]; 
             const image = source.thumbnail;
             
+            if (hideWindow && wasVisible) {
+                win.show();
+                win.focus();
+            }
+
             if (full) {
                 return image.toDataURL();
             } else if (rect) {
@@ -197,6 +219,10 @@ module.exports = {
             }
         } catch (e) {
             console.error('Capture failed:', e);
+            if (hideWindow && wasVisible) {
+                win.show();
+                win.focus();
+            }
             return null;
         }
     });

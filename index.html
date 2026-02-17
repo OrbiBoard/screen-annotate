@@ -364,6 +364,85 @@
       </div>
   </div>
 
+  <!-- Selection Menu -->
+  <div class="selection-menu" id="selection-menu" style="display: none;">
+    <div class="menu-row main-row">
+      <button class="menu-btn" data-action="delete" title="Delete">
+        <i class="ri-delete-bin-line"></i>
+        <span>删除</span>
+      </button>
+      <div class="separator-vertical"></div>
+      <button class="menu-btn" data-action="copy" title="Copy">
+        <i class="ri-file-copy-line"></i>
+        <span>复制</span>
+      </button>
+      <div class="separator-vertical"></div>
+      <button class="menu-btn" id="btn-layer-toggle" data-action="layer" title="Layer">
+        <i class="ri-stack-line"></i>
+        <span>层级</span>
+      </button>
+      <div class="separator-vertical"></div>
+      <button class="menu-btn" data-action="cancel" title="Cancel">
+        <i class="ri-close-line"></i>
+        <span>取消</span>
+      </button>
+    </div>
+    
+    <div class="menu-row sub-row" id="layer-submenu">
+        <div class="submenu-label">
+            <i class="ri-stack-line"></i>
+            <span>层级调整</span>
+        </div>
+        <button class="menu-btn" data-action="to-front" title="Bring to Front">
+            <i class="ri-bring-to-front"></i>
+            <span>置顶</span>
+        </button>
+        <button class="menu-btn" data-action="bring-forward" title="Bring Forward">
+            <i class="ri-arrow-up-circle-line"></i>
+            <span>上移</span>
+        </button>
+        <button class="menu-btn" data-action="send-backward" title="Send Backward">
+            <i class="ri-arrow-down-circle-line"></i>
+            <span>下移</span>
+        </button>
+        <button class="menu-btn" data-action="to-back" title="Send to Back">
+            <i class="ri-send-to-back"></i>
+            <span>置底</span>
+        </button>
+        <div class="separator-vertical"></div>
+        <button class="menu-btn" data-action="collapse-layer" title="Close Layer Menu">
+            <i class="ri-arrow-up-s-line"></i>
+            <span>收起</span>
+        </button>
+    </div>
+  </div>
+
+  <!-- Gallery View -->
+  <div id="gallery-view" style="display: none;">
+    <button class="tool-btn" id="btn-gallery-return-live" style="width: 100%; margin-top: 8px;">
+        <i class="ri-live-line"></i>
+        <span>返回直播</span>
+    </button>
+    <div class="gallery-grid" id="gallery-grid">
+       <!-- Images injected here -->
+    </div>
+    <!-- Actions Hidden/Overlay? -->
+    <div class="gallery-header" style="display: none;"> <!-- Hide old header -->
+       <div id="gallery-actions-default">
+         <button class="gallery-btn" id="btn-gallery-delete">删除</button>
+         <button class="gallery-btn" id="btn-gallery-save">保存</button>
+       </div>
+       <div id="gallery-actions-selection" style="display: none; align-items: center; gap: 10px;">
+         <label style="color: white; font-size: 14px; display: flex; align-items: center; gap: 4px;">
+            <input type="checkbox" id="chk-include-ink" checked> 包含笔迹
+         </label>
+         <button class="gallery-btn" id="btn-confirm-delete">确定删除</button>
+         <button class="gallery-btn" id="btn-continue-save">继续保存</button>
+       </div>
+       <button class="icon-only-btn" id="btn-close-gallery"><i class="ri-close-line"></i></button>
+    </div>
+  </div>
+
   <script src="./renderer.js"></script>
 </body>
 </html>

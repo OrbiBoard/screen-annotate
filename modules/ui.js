@@ -15,14 +15,99 @@ function getHistory() {
 // DOM Elements
 const toolbar = document.getElementById('main-toolbar');
 
+let screenInfo = null;
+let currentToolbarCallback = null;
+
+async function initScreenInfo() {
+    try {
+        screenInfo = await ipcRenderer.invoke('annotate-get-screen-info');
+        if (currentToolbarCallback) {
+            renderToolbar(currentToolbarCallback);
+        }
+    } catch (e) {
+        console.error('Failed to get screen info:', e);
+    }
+}
+
 let toolbarState = {
     isSnapped: true,
     isDragging: false,
     offsetX: 0,
     offsetY: 0,
     disableSnapForThisSession: false,
-    willSnap: false
+    willSnap: false,
+    bottomOffset: 20 // Default
 };
+
+const savedToolbarStates = {};
+
+function saveCurrentToolbarState() {
+    const mode = state.MODE;
+    if (toolbarState.isSnapped) {
+        savedToolbarStates[mode] = {
+            isSnapped: true,
+            snapType: toolbarState.snapType
+        };
+    } else {
+        savedToolbarStates[mode] = {
+            isSnapped: false,
+            left: toolbar.style.left,
+            top: toolbar.style.top
+        };
+    }
+}
+
+function restoreToolbarState() {
+    const mode = state.MODE;
+    const saved = savedToolbarStates[mode];
+    
+    // Reset styles first
+    toolbar.style.removeProperty('left');
+    toolbar.style.removeProperty('right');
+    toolbar.style.removeProperty('top');
+    toolbar.style.removeProperty('bottom');
+    toolbar.style.removeProperty('transform');
+    toolbar.style.removeProperty('position');
+
+    if (saved) {
+        toolbarState.isSnapped = saved.isSnapped;
+        if (saved.isSnapped) {
+            toolbarState.snapType = saved.snapType;
+            if (saved.snapType === 'left') {
+                toolbar.style.position = 'fixed';
+                toolbar.style.left = '20px';
+                toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
+            } else if (saved.snapType === 'right') {
+                toolbar.style.position = 'fixed';
+                toolbar.style.right = '20px';
+                toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
+            } else {
+                // Center
+                toolbar.style.position = 'fixed';
+                toolbar.style.left = '50%';
+                toolbar.style.transform = 'translateX(-50%)';
+                toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
+            }
+        } else {
+            toolbarState.isSnapped = false;
+            toolbar.style.position = 'fixed';
+            toolbar.style.left = saved.left;
+            toolbar.style.top = saved.top;
+        }
+    } else {
+        // Default Center
+        toolbarState.isSnapped = true;
+        toolbarState.snapType = 'center';
+        toolbar.style.position = 'fixed';
+        toolbar.style.left = '50%';
+        toolbar.style.transform = 'translateX(-50%)';
+        toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
+        
+        // Save initial default state
+        saveCurrentToolbarState();
+    }
+    updatePopupPositions();
+}
 
 const toolSettingsPopup = document.getElementById('tool-settings-popup');
 const penSettings = document.getElementById('pen-settings');
@@ -66,14 +151,13 @@ const TOOLS = {
     { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' }
   ],
   booth: [
+    { id: 'pan', icon: 'ri-drag-move-line', label: '漫游' }, // Pan logic in Booth
     { id: 'pen', icon: 'ri-pencil-fill', label: '批注' },
     { id: 'eraser', icon: 'ri-eraser-line', label: '橡皮' },
-    { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
-    { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' },
+    { id: 'lasso', icon: 'ri-focus-3-line', label: '套索' }, // Lasso logic
     { id: 'clear', icon: 'ri-delete-bin-line', label: '清页' },
-    { id: 'photo', icon: 'ri-camera-line', label: '拍照' },
-    { id: 'gallery', icon: 'ri-image-line', label: '相册' },
-    { id: 'close', icon: 'ri-close-circle-line', label: '关闭' }
+    { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
+    { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' }
   ]
 };
 
@@ -88,14 +172,13 @@ function enableVideoBooth() {
     }
     
     // Add to Whiteboard Left Controls (DOM injection)
-    // We can't modify HTML from here easily without re-render, but left-controls is static HTML.
-    // We can inject a button.
     const leftControls = document.getElementById('left-controls');
     if (leftControls && !document.getElementById('btn-booth-wb')) {
         const btn = document.createElement('button');
-        btn.className = 'tool-btn';
+        btn.className = 'tool-btn'; 
         btn.id = 'btn-booth-wb';
-        btn.innerHTML = `<i class="ri-vidicon-line"></i><span>展台</span>`;
+        btn.innerHTML = `<i class="ri-vidicon-line"></i><span>展台</span>`; 
+        btn.title = '展台';
         // Insert after Save
         const saveBtn = document.getElementById('btn-save-wb');
         if (saveBtn) {
@@ -104,10 +187,50 @@ function enableVideoBooth() {
             leftControls.appendChild(btn);
         }
     }
+    
+    // Create Booth Controls if not exists
+    let boothControls = document.getElementById('booth-controls');
+    if (!boothControls) {
+        boothControls = document.createElement('div');
+        boothControls.id = 'booth-controls';
+        boothControls.className = 'bottom-controls right'; // Use standard bottom-controls class
+        boothControls.style.display = 'none';
+        boothControls.innerHTML = `
+            <button class="tool-btn" id="btn-booth-settings">
+                <i class="ri-settings-3-line"></i>
+                <span>设置</span>
+            </button>
+            <button class="tool-btn" id="btn-booth-photo">
+                <i class="ri-camera-line"></i>
+                <span>拍照</span>
+            </button>
+            <button class="tool-btn" id="btn-booth-gallery">
+                <i class="ri-image-line"></i>
+                <span>相册</span>
+            </button>
+        `;
+        document.body.appendChild(boothControls);
+    }
 }
 
 function renderToolbar(handleToolClickCallback) {
+  currentToolbarCallback = handleToolClickCallback;
+  if (!screenInfo) {
+      initScreenInfo();
+  } else {
+      // Calculate Bottom Offset (Taskbar Height)
+      const { bounds, workArea } = screenInfo;
+      // If taskbar is at bottom
+      const gapBottom = bounds.height - (workArea.y + workArea.height);
+      if (gapBottom > 0 && state.MODE === 'annotate') {
+          toolbarState.bottomOffset = gapBottom + 20; // 20px padding
+      } else {
+          toolbarState.bottomOffset = 20;
+      }
+  }
+
   toolbar.innerHTML = '';
+  restoreToolbarState();
   
   // Add Drag Handle
   const handle = document.createElement('div');
@@ -156,7 +279,7 @@ function renderToolbar(handleToolClickCallback) {
       y = Math.max(0, Math.min(h - tbH, y));
       
       const defaultX = (w - tbW) / 2;
-      const defaultY = h - tbH - 20; // 20px margin
+      const defaultY = h - tbH - toolbarState.bottomOffset;
       const snapThreshold = 50;
       
       let shouldSnap = false;
@@ -230,28 +353,34 @@ function renderToolbar(handleToolClickCallback) {
               toolbar.style.position = 'fixed';
               toolbar.style.left = '20px';
               toolbar.style.right = 'auto';
-              toolbar.style.bottom = '20px';
+              toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
               toolbar.style.top = 'auto';
               toolbar.style.transform = 'none';
           } else if (toolbarState.snapType === 'right') {
               toolbar.style.position = 'fixed';
               toolbar.style.left = 'auto';
               toolbar.style.right = '20px';
-              toolbar.style.bottom = '20px';
+              toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
               toolbar.style.top = 'auto';
               toolbar.style.transform = 'none';
           } else {
               // Center (default)
-              toolbar.style.position = '';
-              toolbar.style.left = '';
-              toolbar.style.top = '';
-              toolbar.style.bottom = '';
-              toolbar.style.right = '';
-              toolbar.style.transform = '';
+              // Note: We need to respect bottom offset even for center if not using CSS 'bottom: 20px'
+              // Wait, previous code used CSS defaults for center.
+              // CSS likely has `bottom: 20px; left: 50%; transform: translateX(-50%);`
+              // If we want to change bottom offset, we must override it.
+              
+              toolbar.style.position = 'fixed'; // Ensure fixed
+              toolbar.style.left = '50%';
+              toolbar.style.transform = 'translateX(-50%)';
+              toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
+              toolbar.style.top = 'auto';
+              toolbar.style.right = 'auto';
           }
       } else {
           toolbarState.isSnapped = false;
       }
+      saveCurrentToolbarState();
       updatePopupPositions();
   };
 
@@ -265,6 +394,11 @@ function renderToolbar(handleToolClickCallback) {
   if (state.MODE === 'annotate' && state.currentTool === 'mouse') {
       const hiddenTools = ['undo', 'redo', 'select'];
       toolSet = toolSet.filter(t => !hiddenTools.includes(t.id));
+  }
+  
+  // Fix 5: In Booth Mode, hide 'close' from main toolbar because it's in left-controls
+  if (state.MODE === 'booth') {
+      toolSet = toolSet.filter(t => t.id !== 'close');
   }
 
   toolSet.forEach(tool => {
@@ -323,8 +457,22 @@ function renderToolbar(handleToolClickCallback) {
   });
   
   // Show/Hide Pan Overlay
-  if (state.currentTool === 'pan') {
+  if (state.MODE === 'booth' || state.currentTool === 'pan') {
       panOverlay.style.display = 'flex';
+      
+      // Fix: Ensure toggle button icon matches state
+      const btn = document.getElementById('btn-pan-toggle-map');
+      if (btn) {
+          const icon = btn.querySelector('i');
+          if (minimapContainer.style.display === 'none') {
+              if (icon) icon.className = 'ri-arrow-up-s-line';
+              btn.title = '显示地图';
+          } else {
+              if (icon) icon.className = 'ri-arrow-down-s-line';
+              btn.title = '隐藏地图';
+          }
+      }
+      
       updateMinimap();
   } else {
       panOverlay.style.display = 'none';
@@ -364,14 +512,19 @@ function renderToolbar(handleToolClickCallback) {
               if (newSnapType === 'left') {
                   toolbar.style.position = 'fixed';
                   toolbar.style.left = '20px';
-                  toolbar.style.bottom = '20px';
+                  toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
               } else if (newSnapType === 'right') {
                   toolbar.style.position = 'fixed';
                   toolbar.style.right = '20px';
-                  toolbar.style.bottom = '20px';
+                  toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
               } else {
-                  // Center (default CSS)
-                  toolbar.style.position = ''; // Revert to CSS
+                  // Center
+                  toolbar.style.position = 'fixed';
+                  toolbar.style.left = '50%';
+                  toolbar.style.transform = 'translateX(-50%)';
+                  toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
+                  toolbar.style.right = 'auto';
+                  toolbar.style.top = 'auto';
               }
               updatePopupPositions();
           }
@@ -445,6 +598,37 @@ function updateMinimap() {
     // Store transform for interaction
     state.minimapTransform = { scale, minX, minY, offX, offY };
     
+    // Draw Video Background (Booth Mode)
+    if (state.MODE === 'booth') {
+        const video = document.querySelector('video');
+        if (video && video.readyState >= 2) {
+             const vx = (0 - minX) * scale + offX;
+             const vy = (0 - minY) * scale + offY;
+             const vw = window.innerWidth * scale;
+             const vh = window.innerHeight * scale;
+             ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, vx, vy, vw, vh);
+        }
+    } else {
+        // Draw Images (Whiteboard Mode)
+        strokes.forEach(s => {
+            if (['image', 'video', 'browser'].includes(s.type) && s.img) {
+                // For video/browser, we might need a thumb or capture if available
+                // Assuming s.img is available for images
+                const ix = (s.x - minX) * scale + offX;
+                const iy = (s.y - minY) * scale + offY;
+                const iw = s.w * scale;
+                const ih = s.h * scale;
+                try {
+                    ctx.drawImage(s.img, ix, iy, iw, ih);
+                } catch(e) {}
+            } else if (s.type === 'video' && s.thumb) {
+                // If video has thumb dataUrl, we need to load it first? 
+                // Too slow for sync render. Maybe cache image object.
+                // Skip for now or implement cached image loading.
+            }
+        });
+    }
+
     // Draw strokes
     ctx.save();
     ctx.translate(offX, offY);
@@ -1004,6 +1188,8 @@ function bindSettingsUI(callbacks) {
     // Fix for Issue 5: Clear correct page in fullscreen
     if (state.fullscreen.active) {
         state.fullscreen.strokes = [];
+    } else if (state.MODE === 'annotate') {
+        state.annotate.strokes = [];
     } else {
         state.pages[state.currentPageIndex] = [];
     }
@@ -1295,55 +1481,97 @@ function bindSettingsUI(callbacks) {
   document.getElementById('btn-pan-zoom-in').onclick = () => {
       // Zoom in towards center
       const camera = state.getActiveCamera();
-      camera.z = Math.min(camera.z * 1.2, 10);
+      const oldZ = camera.z;
+      const newZ = Math.min(camera.z * 1.2, 10);
+      camera.z = newZ;
+      
       // Keep center
       const cx = window.innerWidth / 2;
       const cy = window.innerHeight / 2;
-      const wx = (cx - camera.x) / (camera.z / 1.2); // old world x
-      const wy = (cy - camera.y) / (camera.z / 1.2);
+      const wx = (cx - camera.x) / oldZ; // old world x
+      const wy = (cy - camera.y) / oldZ;
       
       // new x/y
       camera.x = cx - wx * camera.z;
       camera.y = cy - wy * camera.z;
       
+      if (state.MODE === 'booth') {
+          // Fix: Send correct zoom and position
+          ipcRenderer.send('video-booth-zoom', { zoom: camera.z, x: camera.x, y: camera.y });
+      }
+
       canvasModule.renderCanvas();
       objects.updateDOMObjects();
       updateMinimap();
   };
   document.getElementById('btn-pan-zoom-out').onclick = () => {
       const camera = state.getActiveCamera();
-      camera.z = Math.max(camera.z / 1.2, 0.1);
+      const oldZ = camera.z;
+      const newZ = Math.max(camera.z / 1.2, 0.1);
+      camera.z = newZ;
+
       // Keep center
       const cx = window.innerWidth / 2;
       const cy = window.innerHeight / 2;
-      const wx = (cx - camera.x) / (camera.z * 1.2); 
-      const wy = (cy - camera.y) / (camera.z * 1.2);
+      const wx = (cx - camera.x) / oldZ; 
+      const wy = (cy - camera.y) / oldZ;
+      
       camera.x = cx - wx * camera.z;
       camera.y = cy - wy * camera.z;
       
+      if (state.MODE === 'booth') {
+           ipcRenderer.send('video-booth-zoom', { zoom: camera.z, x: camera.x, y: camera.y });
+      }
+
       canvasModule.renderCanvas();
       objects.updateDOMObjects();
       updateMinimap();
   };
   document.getElementById('btn-pan-zoom-reset').onclick = () => {
       const camera = state.getActiveCamera();
+      const oldZ = camera.z;
       camera.z = 1;
-      // Recenter? Or just scale 1?
-      // "100%" usually means zoom=1.
+      
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+      const wx = (cx - camera.x) / oldZ;
+      const wy = (cy - camera.y) / oldZ;
+      
+      camera.x = cx - wx * camera.z;
+      camera.y = cy - wy * camera.z;
+
+      if (state.MODE === 'booth') {
+          // Fix: Send correct zoom and position
+          ipcRenderer.send('video-booth-zoom', { zoom: camera.z, x: camera.x, y: camera.y });
+      }
+
       canvasModule.renderCanvas();
       objects.updateDOMObjects();
       updateMinimap();
   };
   document.getElementById('btn-pan-fit-screen').onclick = () => {
       canvasModule.fitCameraToContent();
+      
+      if (state.MODE === 'booth') {
+          const camera = state.getActiveCamera();
+          // Fix: Ensure we sync exact position
+          ipcRenderer.send('video-booth-zoom', { zoom: camera.z, x: camera.x, y: camera.y });
+      }
+      
       updateMinimap();
   };
   document.getElementById('btn-pan-toggle-map').onclick = () => {
+      const btn = document.getElementById('btn-pan-toggle-map');
+      const icon = btn.querySelector('i');
       if (minimapContainer.style.display === 'none') {
           minimapContainer.style.display = 'block';
           updateMinimap();
+          if (icon) icon.className = 'ri-arrow-down-s-line';
+          btn.title = '隐藏地图';
       } else {
           minimapContainer.style.display = 'none';
+          if (icon) icon.className = 'ri-arrow-up-s-line';
+          btn.title = '显示地图';
       }
   };
   
@@ -1379,6 +1607,10 @@ function bindSettingsUI(callbacks) {
       camera.x -= worldDx * camera.z;
       camera.y -= worldDy * camera.z;
       
+      if (state.MODE === 'booth') {
+          ipcRenderer.send('video-booth-move', { dx: -worldDx * camera.z, dy: -worldDy * camera.z });
+      }
+
       canvasModule.renderCanvas();
       objects.updateDOMObjects();
       
@@ -1565,7 +1797,7 @@ function showChoiceModal(title, message, choices, callback) {
     };
 }
 
-function showModeToast(mode, position) {
+function showModeToast(modeOrText, position, duration = 1500) {
     let toast = document.getElementById('mode-toast');
     if (!toast) {
         toast = document.createElement('div');
@@ -1574,10 +1806,9 @@ function showModeToast(mode, position) {
         document.body.appendChild(toast);
     }
     
-    let text = '';
-    if (mode === 'pen') text = '当前处于：批注模式';
-    else if (mode === 'eraser') text = '当前处于：橡皮模式';
-    else return; // Only for pen/eraser
+    let text = modeOrText;
+    if (modeOrText === 'pen') text = '当前处于：批注模式';
+    else if (modeOrText === 'eraser') text = '当前处于：橡皮模式';
     
     toast.textContent = text;
     
@@ -1640,7 +1871,7 @@ function showModeToast(mode, position) {
     if (state.toastTimeout) clearTimeout(state.toastTimeout);
     state.toastTimeout = setTimeout(() => {
         toast.classList.remove('visible');
-    }, 1500);
+    }, duration);
 }
 
 function showContinueWhiteboardToast(onYes, onNo) {
