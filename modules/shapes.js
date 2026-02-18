@@ -177,29 +177,78 @@ function drawShape(ctx, stroke) {
             ctx.lineTo(start.x + headLen * Math.cos(angle + Math.PI / 6), start.y + headLen * Math.sin(angle + Math.PI / 6));
         }
     } else if (shapeType === 'cuboid') {
-        // Front face
-        ctx.rect(start.x, start.y, w, h);
-        
-        if (depthEnd) {
-            // Calculate depth vector relative to end point
-            const dx = depthEnd.x - (stroke.step === 2 ? stroke.end.x : end.x);
-            const dy = depthEnd.y - (stroke.step === 2 ? stroke.end.y : end.y);
+        if (stroke.rotationX !== undefined || stroke.rotationY !== undefined) {
+            // 3D Rotated Cuboid Rendering
+            const cx = stroke.x + stroke.w / 2;
+            const cy = stroke.y + stroke.h / 2;
+            const w = stroke.w;
+            const h = stroke.h;
+            const d = stroke.d || Math.min(Math.abs(w), Math.abs(h)); // Default depth if not set
             
-            // For preview (stroke.step is undefined or handled in renderCanvas), 
-            // if we are dragging depth, depthEnd is mouse pos, end is fixed.
-            // So depth vector is depthEnd - end.
+            const rotX = stroke.rotationX || 0;
+            const rotY = stroke.rotationY || 0;
             
-            // Back face top-left
-            const bx = start.x + (depthEnd.x - end.x);
-            const by = start.y + (depthEnd.y - end.y);
+            // 8 Vertices relative to center
+            const vertices = [
+                {x: -w/2, y: -h/2, z: -d/2}, {x: w/2, y: -h/2, z: -d/2},
+                {x: w/2, y: h/2, z: -d/2}, {x: -w/2, y: h/2, z: -d/2},
+                {x: -w/2, y: -h/2, z: d/2}, {x: w/2, y: -h/2, z: d/2},
+                {x: w/2, y: h/2, z: d/2}, {x: -w/2, y: h/2, z: d/2}
+            ];
             
-            ctx.rect(bx, by, w, h);
+            // Rotate and Project
+            const projected = vertices.map(v => {
+                // Rotate Y
+                let x = v.x * Math.cos(rotY) - v.z * Math.sin(rotY);
+                let z = v.x * Math.sin(rotY) + v.z * Math.cos(rotY);
+                let y = v.y;
+                
+                // Rotate X
+                let y2 = y * Math.cos(rotX) - z * Math.sin(rotX);
+                let z2 = y * Math.sin(rotX) + z * Math.cos(rotX);
+                
+                // Orthographic Projection (just drop Z) + Translate
+                return {
+                    x: x + cx,
+                    y: y2 + cy
+                };
+            });
             
-            // Connectors
-            ctx.moveTo(start.x, start.y); ctx.lineTo(bx, by);
-            ctx.moveTo(start.x + w, start.y); ctx.lineTo(bx + w, by);
-            ctx.moveTo(start.x, start.y + h); ctx.lineTo(bx, by + h);
-            ctx.moveTo(start.x + w, start.y + h); ctx.lineTo(bx + w, by + h);
+            // Draw Edges
+            const edges = [
+                [0,1], [1,2], [2,3], [3,0], // Front (initially)
+                [4,5], [5,6], [6,7], [7,4], // Back
+                [0,4], [1,5], [2,6], [3,7]  // Connectors
+            ];
+            
+            ctx.beginPath();
+            edges.forEach(e => {
+                ctx.moveTo(projected[e[0]].x, projected[e[0]].y);
+                ctx.lineTo(projected[e[1]].x, projected[e[1]].y);
+            });
+            
+        } else {
+            // Standard Oblique Cuboid (Legacy/Default)
+            // Front face (always solid)
+            ctx.rect(start.x, start.y, w, h);
+            
+            if (depthEnd) {
+                // Calculate depth vector relative to end point
+                const dx = depthEnd.x - (stroke.step === 2 ? stroke.end.x : end.x);
+                const dy = depthEnd.y - (stroke.step === 2 ? stroke.end.y : end.y);
+                
+                // Back face top-left
+                const bx = start.x + dx;
+                const by = start.y + dy;
+                
+                ctx.rect(bx, by, w, h);
+                
+                // Connectors
+                ctx.moveTo(start.x, start.y); ctx.lineTo(bx, by);
+                ctx.moveTo(start.x + w, start.y); ctx.lineTo(bx + w, by);
+                ctx.moveTo(start.x, start.y + h); ctx.lineTo(bx, by + h);
+                ctx.moveTo(start.x + w, start.y + h); ctx.lineTo(bx + w, by + h);
+            }
         }
     } else if (shapeType === 'cone') {
         // Base ellipse

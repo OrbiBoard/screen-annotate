@@ -61,5 +61,6 @@ module.exports = {
     },
     openGallery: proxy('openGallery'),
     initGalleryListeners: proxy('initGalleryListeners'),
-    setHandleToolClick: proxy('setHandleToolClick')
+    setHandleToolClick: proxy('setHandleToolClick'),
+    updateBackgroundTransform: proxy('updateBackgroundTransform')
 };

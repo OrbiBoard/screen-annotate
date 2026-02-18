@@ -98,13 +98,16 @@ async function switchToWhiteboard(handleToolClick) {
         
         updateWhiteboardUI();
         
-        ui.showModeToast('已接续屏幕批注，当前页面为白板页面', null, 1500);
-
         if (previousMode === 'annotate') {
             ui.showContinueWhiteboardToast(
-                () => importBackgroundAndContinue(handleToolClick),
+                () => {
+                    importBackgroundAndContinue(handleToolClick);
+                    ui.showModeToast('桌面批注已流转到白板', null, 1500);
+                },
                 () => { /* No action, just close */ }
             );
+        } else {
+             ui.showModeToast('当前页面为白板页面', null, 1500);
         }
     }
 }
@@ -163,17 +166,12 @@ function enterWhiteboardMode(handleToolClick, previousMode) {
     
     const collapseBtn = document.getElementById('btn-collapse');
     if (collapseBtn) {
-        if (previousMode === 'booth') {
-             collapseBtn.onclick = () => { booth.enterBoothMode(handleToolClick, false); };
-             const icon = collapseBtn.querySelector('i');
-             if (icon) icon.className = 'ri-arrow-go-back-line';
-             collapseBtn.title = '返回展台';
-        } else {
-             collapseBtn.onclick = () => { switchToAnnotate(handleToolClick); };
-             const icon = collapseBtn.querySelector('i');
-             if (icon) icon.className = 'ri-arrow-go-back-line'; 
-             collapseBtn.title = '返回批注模式';
-        }
+        collapseBtn.onclick = () => { switchToAnnotate(handleToolClick); };
+        const icon = collapseBtn.querySelector('i');
+        if (icon) icon.className = 'ri-close-circle-line'; 
+        const span = collapseBtn.querySelector('span');
+        if (span) span.textContent = '关闭';
+        collapseBtn.title = '关闭';
     }
 }
 

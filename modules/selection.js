@@ -452,6 +452,7 @@ function updateSelectionBounds() {
   rotLine.style.height = `${rotDist}px`;
   rotLine.style.width = '0px';
   rotLine.style.borderLeft = '1px dashed var(--primary-color)';
+  rotLine.style.pointerEvents = 'none';
   
   const rotH = document.createElement('div');
   rotH.className = 'rotate-handle';
@@ -494,6 +495,40 @@ function updateSelectionBounds() {
       const onMove = (em) => {
           if (!state.isRotatingSelection) return;
           
+          // Cuboid 3D Rotation Logic
+          if (state.selectedStrokeIndices.length === 1) {
+              const stroke = state.getActiveStrokes()[state.selectedStrokeIndices[0]];
+              if (stroke.shapeType === 'cuboid') {
+                  const sensitivity = 0.01;
+                  
+                  // Initialize 3D props if missing
+                  if (stroke.rotationX === undefined) {
+                      stroke.rotationX = 0;
+                      stroke.rotationY = 0;
+                      const w = stroke.end.x - stroke.start.x;
+                      const h = stroke.end.y - stroke.start.y;
+                      stroke.w = w; stroke.h = h;
+                      if (stroke.depthEnd) {
+                          const dxDepth = stroke.depthEnd.x - stroke.end.x;
+                          const dyDepth = stroke.depthEnd.y - stroke.end.y;
+                          stroke.d = Math.hypot(dxDepth, dyDepth);
+                      } else {
+                          stroke.d = Math.min(Math.abs(w), Math.abs(h));
+                      }
+                      // Hide handles that don't make sense in 3D mode?
+                      // Or just let them be weird.
+                  }
+                  
+                  stroke.rotationY += em.movementX * sensitivity;
+                  stroke.rotationX += em.movementY * sensitivity;
+                  
+                  canvasModule.renderCanvas();
+                  getObjectsModule().updateDOMObjects();
+                  updateSelectionToolbarPosition();
+                  return;
+              }
+          }
+
           const dx = em.clientX - state.rotationCenter.x;
           const dy = em.clientY - state.rotationCenter.y;
           const currentAngle = Math.atan2(dy, dx);
@@ -862,6 +897,13 @@ function moveSelection(dx, dy) {
             current.depthEnd.x = original.depthEnd.x + dx;
             current.depthEnd.y = original.depthEnd.y + dy;
         }
+        // Fix for Polygon Move Issue: Update vertices if they exist
+        if (current.vertices && original.vertices) {
+            current.vertices = original.vertices.map(v => ({
+                x: v.x + dx,
+                y: v.y + dy
+            }));
+        }
     } else {
         if (original.points) {
             current.points = original.points.map(p => ({
@@ -977,19 +1019,12 @@ function resizeSelection(cursorPoint) {
       } else if (handle === 60) { // X Axis Midpoint
           // M = (Start + End)/2
           // End = 2 * Cursor - Start
+          const newEndX = 2 * cursorPoint.x - stroke.start.x;
+          const newEndY = 2 * cursorPoint.y - stroke.start.y;
           
-          // Debug: User says this moves the shape.
-          // Is it because the handle is too small and user misses it?
-          // Or is the event bubbling?
-          
-          // Let's assume user is hitting the line, not the handle, if the handle is too small?
-          // I added size 12px for green handles. Maybe make it bigger?
-          // Or maybe the z-index fix I just added will solve it.
-          
-          stroke.end = {
-              x: 2 * cursorPoint.x - stroke.start.x,
-              y: 2 * cursorPoint.y - stroke.start.y
-          };
+          // Update in place to preserve object reference if needed
+          stroke.end.x = newEndX;
+          stroke.end.y = newEndY;
       } else if (handle === 61) { // Y Axis Midpoint
           stroke.depthEnd = {
               x: 2 * cursorPoint.x - stroke.start.x,
@@ -1172,10 +1207,11 @@ function renderShapeHandles(stroke, container, bounds) {
         if (id >= 40 && id <= 69) {
              h.style.border = '1px solid #52c41a';
              h.style.color = '#52c41a';
+             h.style.zIndex = '200'; // Ensure above everything
              if (!icon) {
                  h.style.background = '#52c41a';
-                 h.style.width = '12px';
-                 h.style.height = '12px';
+                 h.style.width = '16px'; // Increased size
+                 h.style.height = '16px'; // Increased size
                  h.style.borderRadius = '50%';
                  h.style.border = '2px solid white';
              }

@@ -13,13 +13,13 @@
     {
       "id": "openAnnotate",
       "icon": "ri-edit-line",
-      "text": "打开批注",
+      "text": "批注栏",
       "target": "openAnnotate"
     },
     {
       "id": "openWhiteboard",
       "icon": "ri-artboard-line",
-      "text": "打开白板",
+      "text": "白板",
       "target": "openWhiteboard"
     }
   ]

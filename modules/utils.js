@@ -1,4 +1,5 @@
 const state = require('./state');
+const shapes = require('./shapes');
 
 function getPoint(e) {
   const camera = state.getActiveCamera();
@@ -223,6 +224,7 @@ function isEraserHittingShape(shape, eraserCenter, threshold) {
     const thresholdSq = threshold * threshold;
 
     if (shapeType === 'rect' || shapeType === 'cuboid' || shapeType === 'square') {
+        // ... (existing rect logic)
         let x, y, width, height;
         if (shapeType === 'square') {
             const s = Math.max(Math.abs(w), Math.abs(h));
@@ -233,7 +235,6 @@ function isEraserHittingShape(shape, eraserCenter, threshold) {
             x = start.x; y = start.y; width = w; height = h;
         }
         
-        // 4 segments
         const p1 = {x, y};
         const p2 = {x: x+width, y};
         const p3 = {x: x+width, y: y+height};
@@ -244,14 +245,27 @@ function isEraserHittingShape(shape, eraserCenter, threshold) {
         if (distToSegmentSquared(eraserCenter, p3, p4) < thresholdSq) return true;
         if (distToSegmentSquared(eraserCenter, p4, p1) < thresholdSq) return true;
         return false;
-    } else if (shapeType === 'triangle') {
-        const p1 = { x: start.x + w/2, y: start.y };
-        const p2 = { x: start.x, y: start.y + h };
-        const p3 = { x: start.x + w, y: start.y + h };
+    } else if (shapeType === 'triangle' || shapeType === 'pentagon' || shapeType === 'hexagon' || shapeType === 'parallelogram') {
+        let vertices = shape.vertices;
+        if (!vertices) {
+            if (shapeType === 'parallelogram') {
+                const skewOffset = (shape.skewX || 0) * w;
+                vertices = [
+                    { x: start.x + skewOffset, y: start.y },
+                    { x: start.x + w + skewOffset, y: start.y },
+                    { x: start.x + w - skewOffset, y: start.y + h },
+                    { x: start.x - skewOffset, y: start.y + h }
+                ];
+            } else {
+                vertices = shapes.getPolygonVertices(shapeType, start, end);
+            }
+        }
         
-        if (distToSegmentSquared(eraserCenter, p1, p2) < thresholdSq) return true;
-        if (distToSegmentSquared(eraserCenter, p2, p3) < thresholdSq) return true;
-        if (distToSegmentSquared(eraserCenter, p3, p1) < thresholdSq) return true;
+        for (let i = 0; i < vertices.length; i++) {
+            const p1 = vertices[i];
+            const p2 = vertices[(i + 1) % vertices.length];
+            if (distToSegmentSquared(eraserCenter, p1, p2) < thresholdSq) return true;
+        }
         return false;
     } else if (shapeType === 'circle') {
          const s = Math.max(Math.abs(w), Math.abs(h));
@@ -267,6 +281,21 @@ function isEraserHittingShape(shape, eraserCenter, threshold) {
     return isPointInShape(eraserCenter, shape);
 }
 
+function rotatePoint(p, center, angle) {
+    const rad = (angle * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    
+    const dx = p.x - center.x;
+    const dy = p.y - center.y;
+    
+    return {
+        x: center.x + (dx * cos - dy * sin),
+        y: center.y + (dx * sin + dy * cos),
+        pressure: p.pressure
+    };
+}
+
 module.exports = {
     getPoint,
     getScreenCenterWorld,
@@ -277,5 +306,6 @@ module.exports = {
     getSvgPathFromStroke,
     getSegmentCircleIntersections,
     isPointInShape,
-    isEraserHittingShape
+    isEraserHittingShape,
+    rotatePoint
 };

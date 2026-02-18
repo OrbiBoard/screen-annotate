@@ -155,7 +155,7 @@ const TOOLS = {
     { id: 'pen', icon: 'ri-pencil-fill', label: '批注' },
     { id: 'eraser', icon: 'ri-eraser-line', label: '橡皮' },
     { id: 'lasso', icon: 'ri-focus-3-line', label: '套索' }, // Lasso logic
-    { id: 'clear', icon: 'ri-delete-bin-line', label: '清页' },
+    { id: 'rotate', icon: 'ri-refresh-line', label: '旋转' },
     { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
     { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' }
   ]
@@ -600,14 +600,264 @@ function updateMinimap() {
     
     // Draw Video Background (Booth Mode)
     if (state.MODE === 'booth') {
-        const video = document.querySelector('video');
-        if (video && video.readyState >= 2) {
-             const vx = (0 - minX) * scale + offX;
-             const vy = (0 - minY) * scale + offY;
-             const vw = window.innerWidth * scale;
-             const vh = window.innerHeight * scale;
-             ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, vx, vy, vw, vh);
+        ctx.save();
+        
+        // Minimap Rotation Logic
+        // We need to rotate the minimap view if the background is rotated.
+        // But minimap usually stays axis aligned.
+        // The CONTENT is rotated.
+        
+        // Center of minimap canvas
+        const mcx = mw / 2;
+        const mcy = mh / 2;
+        
+        // If we want the minimap to show rotated content correctly:
+        // We should rotate the context around the center of the minimap content area?
+        // Or just draw the image rotated?
+        
+        // Let's draw the image rotated around its center in the minimap.
+        // Image center in minimap coords:
+        // ix + iw/2, iy + ih/2
+        
+        const r = state.booth.bgRotation || 0;
+        
+        if (state.booth.previewImageElement) {
+            const img = state.booth.previewImageElement;
+            if (img.complete) {
+                 const ix = (0 - minX) * scale + offX;
+                 const iy = (0 - minY) * scale + offY;
+                 const iw = window.innerWidth * scale; 
+                 const ih = window.innerHeight * scale;
+                 
+                 // Keep aspect ratio logic from before
+                 const ratio = img.width / img.height;
+                 const screenRatio = window.innerWidth / window.innerHeight;
+                 
+                 let dw, dh, dx, dy;
+                 if (ratio > screenRatio) {
+                     dw = iw;
+                     dh = iw / ratio;
+                     dx = ix;
+                     dy = iy + (ih - dh) / 2;
+                 } else {
+                     dh = ih;
+                     dw = ih * ratio;
+                     dy = iy;
+                     dx = ix + (iw - dw) / 2;
+                 }
+                 
+                 if (r !== 0) {
+                     const cx = dx + dw/2;
+                     const cy = dy + dh/2;
+                     ctx.translate(cx, cy);
+                     ctx.rotate(r * Math.PI / 180);
+                     ctx.translate(-cx, -cy);
+                 }
+                 
+                 ctx.drawImage(img, dx, dy, dw, dh);
+                 
+                 if (r !== 0) {
+                     // Reset transform for next items
+                     ctx.setTransform(1, 0, 0, 1, 0, 0);
+                 }
+            }
+        } else {
+            const video = document.getElementById('booth-minimap-video') || document.querySelector('video');
+            if (video && video.readyState >= 2) {
+                 const vx = (0 - minX) * scale + offX;
+                 const vy = (0 - minY) * scale + offY;
+                 const vw = window.innerWidth * scale;
+                 const vh = window.innerHeight * scale;
+                 
+                 if (r !== 0) {
+                     const cx = vx + vw/2;
+                     const cy = vy + vh/2;
+                     ctx.translate(cx, cy);
+                     ctx.rotate(r * Math.PI / 180);
+                     ctx.translate(-cx, -cy);
+                 }
+                 
+                 // Fix: Adjust video draw position to be centered on the minimap content area
+                 // Current vx, vy are calculated based on scale and offset.
+                 // Video should fill the "screen" area in world coordinates.
+                 // In world coords, screen is at (camera.x, camera.y) to (camera.x+w/z, camera.y+h/z)?
+                 // No. Screen is 0,0 to W,H in SCREEN coords.
+                 // World coords of screen top-left: (0-camera.x)/camera.z
+                 
+                 // The minimap draws the WORLD content.
+                 // The video is fixed to the SCREEN background.
+                 // So in World Coords, the video is always at the "Viewport" rect?
+                 // Yes, because it's a background layer fixed to the window.
+                 // So if we pan right (camera.x decreases), the world moves left.
+                 // The video stays on screen. So relative to the world, the video moves right?
+                 // Wait.
+                 // Video is "Background Layer". It pans with the camera?
+                 // "Booth Mode": Video is the canvas background.
+                 // When we pan, we move the camera.
+                 // Does the video move?
+                 // In `updateTransform` (index.html), we move the video container.
+                 // So the video IS part of the world content?
+                 // Yes.
+                 // It is at World (0,0)? Or Screen Center?
+                 // Let's check updateTransform logic again.
+                 // `translate(cx + tx, cy + ty)` where tx = camera.x - cx.
+                 // So translation is `camera.x, camera.y`.
+                 // So the video top-left is at `camera.x, camera.y` in SCREEN coordinates?
+                 // No, `translate` moves the element.
+                 // If camera.x=0, camera.y=0. Video is at 0,0.
+                 // If camera.x=100. Video is at 100,0.
+                 // So video moves with camera.
+                 // This means video is "attached" to the camera view?
+                 // NO. If I pan right (camera.x increases? No, pan right means move camera left?
+                 // Usually Pan Tool: Drag scene right -> Camera moves left (x decreases).
+                 // If I drag scene right, I want to see what's on the left.
+                 // Wait, `camera.x` in `canvas.js`: `ctx.translate(camera.x, camera.y)`.
+                 // If `camera.x = 100`, everything drawn at 0,0 appears at 100,0.
+                 // So `camera.x` is the offset of the world origin relative to screen top-left.
+                 
+                 // If I drag right, `camera.x` increases.
+                 // The video also moves by `camera.x`.
+                 // So the video is fixed to the WORLD ORIGIN?
+                 // No. If video moves by `camera.x`, it moves WITH the world.
+                 // So the video is at World (0,0).
+                 // Correct.
+                 
+                 // So in minimap (which shows World), we should draw video at World (0,0).
+                 // World (0,0) in minimap coords:
+                 // (0 - minX) * scale + offX.
+                 // This is exactly what `vx` and `vy` are calculated as above.
+                 // `vx = (0 - minX) * scale + offX`.
+                 
+                 // So why "position inconsistent"?
+                 // Maybe `minX` / `minY` calculation is wrong?
+                 // `minX` includes `viewL` which depends on `camera.x`.
+                 
+                 // Let's verify video dimensions.
+                 // Video is drawn with `vw = window.innerWidth * scale`.
+                 // This assumes video is `window.innerWidth` wide in world.
+                 // Is it?
+                 // Yes, video is full screen size.
+                 // BUT, is it scaled by `camera.z`?
+                 // In `updateTransform`: `scale(${transform.scale})` where scale is `camera.z`.
+                 // So yes, video scales with zoom.
+                 
+                 // So Video Rect in World:
+                 // x: 0
+                 // y: 0
+                 // w: window.innerWidth / camera.z ? 
+                 // No. If I zoom in (z=2), video doubles in size on screen.
+                 // In World coords, if it stays at 0,0 and 100x100.
+                 // Screen shows 50x50 of it?
+                 // If `scale(2)` is applied to video element.
+                 // It becomes 2x bigger visually.
+                 // So in World units, it is FIXED size?
+                 // If I zoom in, does the video content get bigger relative to the screen? Yes.
+                 // Does it get bigger relative to the ink?
+                 // Ink at (10,10) moves to (20,20) on screen.
+                 // Video pixel at (10,10) moves to (20,20) on screen.
+                 // So Video matches World coordinate system.
+                 // So Video is defined as:
+                 // Rect(0, 0, window.innerWidth, window.innerHeight) in WORLD space?
+                 // Or Screen Space?
+                 // If I resize window, video resizes.
+                 // So it's `window.innerWidth` at the moment of capture?
+                 
+                 // If the user says "inconsistent", maybe it's the Rotation Center?
+                 // We rotate video around Screen Center.
+                 // Ink is rotated around Screen Center (World Center).
+                 // Minimap rotates around... what?
+                 // `ctx.translate(cx, cy)` where cx is center of Video Rect on minimap.
+                 // `vx + vw/2`.
+                 // This rotates the video around its own center.
+                 
+                 // BUT, we rotate the Scene around the SCREEN CENTER.
+                 // Screen Center in World:
+                 // SC_w = (ScreenW/2 - cam.x) / cam.z, (ScreenH/2 - cam.y) / cam.z.
+                 
+                 // Video Center in World:
+                 // Video is at (0,0) to (W,H)? No.
+                 // If video moves with `camera.x`, it means it's attached to World Origin?
+                 // Let's re-read `updateTransform`:
+                 // `translate(cx + tx, cy + ty)` where `tx = camera.x - cx`.
+                 // `translate(camera.x, camera.y)`.
+                 // So top-left is at `camera.x, camera.y` on screen.
+                 // This confirms Video is at World (0,0).
+                 
+                 // So Video Center in World is (W/2, H/2).
+                 // Screen Center in World is `(ScreenW/2 - cam.x)/cam.z`.
+                 
+                 // When we rotate:
+                 // We rotate around Screen Center.
+                 // So the Video (at 0,0) rotates around Screen Center.
+                 // Its position changes!
+                 
+                 // In Minimap:
+                 // We are drawing the video at `vx, vy` (which corresponds to World 0,0).
+                 // And we rotate it around `vx + vw/2` (World Center of Video).
+                 // THIS IS WRONG if the rotation pivot was different.
+                 
+                 // If we rotated around Screen Center in the main view.
+                 // The video rect effectively moved in World Space.
+                 // But we are just drawing it at (0,0) and rotating it in place.
+                 
+                 // Correction:
+                 // We should rotate the ENTIRE minimap content around the "Screen Center" point mapped to Minimap?
+                 // Or, calculate the new position of the Video Rect after rotation?
+                 
+                 // Easier approach:
+                 // The minimap shows the WORLD.
+                 // The "Rotation" tool rotates the WORLD around the SCREEN CENTER.
+                 // So, effectively, the Coordinate System rotates?
+                 // No, we modify the coordinates of Ink.
+                 // And we rotate the Background Layer div.
+                 
+                 // If we rotate Background Layer div around Screen Center.
+                 // And Screen Center is NOT the center of the Video (unless camera is centered).
+                 // Then the Video moves.
+                 
+                 // Example:
+                 // Screen 100x100. Cam(0,0). Video at 0,0. Center 50,50.
+                 // Rotate 90deg around 50,50. Video center 50,50. No move.
+                 
+                 // Pan right. Cam(50, 0).
+                 // Screen Center on Screen: 50,50.
+                 // Screen Center in World: (50-50, 50-0) = (0, 50).
+                 // Video is at World (0,0).
+                 // Rotate around World (0, 50).
+                 // Video (0,0) rotates around (0,50) -> (-50, 0)?
+                 // So Video moves to (-50, 0).
+                 
+                 // But our Minimap code draws Video at (0,0) (vx,vy).
+                 // And rotates it around (50, 50) (vx+vw/2).
+                 // It doesn't account for the pivot offset!
+                 
+                 // FIX:
+                 // 1. Calculate Pivot Point in World (Screen Center).
+                 // 2. Map Pivot to Minimap Coords.
+                 // 3. Rotate Context around Pivot.
+                 // 4. Draw Video at World (0,0).
+                 
+                 const cam = state.getActiveCamera();
+                 const screenWCX = (window.innerWidth / 2 - cam.x) / cam.z;
+                 const screenWCY = (window.innerHeight / 2 - cam.y) / cam.z;
+                 
+                 const pivotX = (screenWCX - minX) * scale + offX;
+                 const pivotY = (screenWCY - minY) * scale + offY;
+                 
+                 if (r !== 0) {
+                     ctx.translate(pivotX, pivotY);
+                     ctx.rotate(r * Math.PI / 180);
+                     ctx.translate(-pivotX, -pivotY);
+                 }
+                 
+                 ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, vx, vy, vw, vh);
+                 
+                 if (r !== 0) {
+                     ctx.setTransform(1, 0, 0, 1, 0, 0);
+                 }
+            }
         }
+        ctx.restore();
     } else {
         // Draw Images (Whiteboard Mode)
         strokes.forEach(s => {
@@ -1190,6 +1440,8 @@ function bindSettingsUI(callbacks) {
         state.fullscreen.strokes = [];
     } else if (state.MODE === 'annotate') {
         state.annotate.strokes = [];
+    } else if (state.MODE === 'booth') {
+        state.booth.strokes = [];
     } else {
         state.pages[state.currentPageIndex] = [];
     }
@@ -1797,7 +2049,46 @@ function showChoiceModal(title, message, choices, callback) {
     };
 }
 
+let lastModeToastTime = 0;
+let lastModeToastText = '';
+
 function showModeToast(modeOrText, position, duration = 1500) {
+    let text = modeOrText;
+    if (modeOrText === 'pen') text = '当前处于：批注模式';
+    else if (modeOrText === 'eraser') text = '当前处于：橡皮模式';
+    
+    // Frequency Check (10s)
+    const now = Date.now();
+    if (text === lastModeToastText && now - lastModeToastTime < 10000) {
+        // If clicked again within 10s?
+        // User: "in 10s, 2nd and more clicks pop up".
+        // Implementation:
+        // First click (t0): record time, count=1. Don't show?
+        // Second click (t1 < t0+10s): show.
+        // Wait, "2nd and more clicks pop up" implies the FIRST one does NOT pop up?
+        // "Prompt pops up on the 2nd and subsequent clicks within 10s".
+        // So first click is silent.
+        
+        if (!state.modeToastCount) state.modeToastCount = 0;
+        state.modeToastCount++;
+        
+        if (state.modeToastCount < 2) {
+            lastModeToastTime = now;
+            return;
+        }
+    } else {
+        // Reset or different text or timeout
+        // If timeout passed, treat as new first click?
+        // "Within 10s".
+        state.modeToastCount = 1;
+        lastModeToastText = text;
+        lastModeToastTime = now;
+        return; // Don't show on first click
+    }
+    
+    // If we are here, we are showing it.
+    lastModeToastTime = now; 
+
     let toast = document.getElementById('mode-toast');
     if (!toast) {
         toast = document.createElement('div');
@@ -1805,10 +2096,6 @@ function showModeToast(modeOrText, position, duration = 1500) {
         toast.className = 'mode-toast';
         document.body.appendChild(toast);
     }
-    
-    let text = modeOrText;
-    if (modeOrText === 'pen') text = '当前处于：批注模式';
-    else if (modeOrText === 'eraser') text = '当前处于：橡皮模式';
     
     toast.textContent = text;
     
@@ -1937,13 +2224,11 @@ function showContinueWhiteboardToast(onYes, onNo) {
       
       document.body.appendChild(toast);
       
-      // Auto-hide after 5s if no interaction
+      // Auto-hide after 5s and default to Yes (Transfer)
       const autoHideTimer = setTimeout(() => {
           if (document.body.contains(toast)) {
-              toast.style.opacity = '0';
-              setTimeout(() => toast.remove(), 300); // Wait for fade out
-              // Fix: Do not clear strokes on timeout, just hide the prompt.
-              // User can clear manually if they want.
+              toast.remove();
+              onYes();
           }
       }, 5000);
       
@@ -2047,7 +2332,7 @@ function initScreenshotUI(callbacks) {
     document.getElementById('btn-shot-reselect').onclick = callbacks.onScreenshotReselect;
 }
 
-function showSavePopup() {
+function showSavePopup(options = {}) {
     // Check if exists
     let savePopup = document.getElementById('save-popup');
     if (savePopup) savePopup.remove();
@@ -2056,39 +2341,70 @@ function showSavePopup() {
     savePopup.id = 'save-popup';
     savePopup.className = 'save-popup';
     
-    const leftControls = document.getElementById('left-controls');
-    if (leftControls) {
-        const rect = leftControls.getBoundingClientRect();
-        savePopup.style.left = `${rect.left}px`;
-        savePopup.style.bottom = `${window.innerHeight - rect.top}px`;
-    }
+    // Default options
+    const defaultOptions = {
+        title: '保存',
+        showScope: true,
+        showFormat: true,
+        showArea: true,
+        showIncludeInk: false, // Default false unless requested
+        initialPath: '',
+        onConfirm: null // Custom confirm handler
+    };
     
-    savePopup.innerHTML = `
+    const config = { ...defaultOptions, ...options };
+    
+    let html = '';
+    
+    if (config.showScope) {
+        html += `
         <div class="save-section">
             <div class="save-label">保存范围</div>
             <div class="save-options">
                 <button class="save-opt-btn active" data-group="scope" data-value="single">当前页</button>
                 <button class="save-opt-btn" data-group="scope" data-value="all">全部页</button>
             </div>
-        </div>
+        </div>`;
+    }
+    
+    if (config.showFormat) {
+        html += `
         <div class="save-section">
             <div class="save-label">保存方式</div>
             <div class="save-options">
                 <button class="save-opt-btn active" data-group="format" data-value="image">图片</button>
                 <button class="save-opt-btn" data-group="format" data-value="pdf">PDF</button>
             </div>
-        </div>
+        </div>`;
+    }
+    
+    if (config.showArea) {
+        html += `
         <div class="save-section">
             <div class="save-label">捕获区域</div>
             <div class="save-options">
                 <button class="save-opt-btn active" data-group="area" data-value="canvas">整个画布</button>
                 <button class="save-opt-btn" data-group="area" data-value="viewport">视图区域</button>
             </div>
-        </div>
+        </div>`;
+    }
+    
+    if (config.showIncludeInk) {
+        html += `
+        <div class="save-section">
+            <div class="save-label">选项</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="chk-include-ink" checked style="width:16px; height:16px;">
+                <label for="chk-include-ink" style="font-size:12px; color:var(--fg);">保留笔迹</label>
+            </div>
+        </div>`;
+    }
+
+    html += `
         <div class="save-section">
             <div class="save-label">保存目录</div>
             <div class="save-path-row">
-                <input type="text" id="save-path-input" placeholder="选择保存路径..." readonly>
+                <input type="text" id="save-path-input" placeholder="选择保存路径..." readonly value="${config.initialPath || ''}">
                 <button id="btn-select-path" class="tool-btn small"><i class="ri-folder-open-line"></i></button>
             </div>
         </div>
@@ -2098,24 +2414,45 @@ function showSavePopup() {
         </div>
     `;
     
+    savePopup.innerHTML = html;
     document.body.appendChild(savePopup);
     
-    // Positioning
+    // Positioning logic (reused)
+    // Try to position near the source button if provided via event or context?
+    // Or just default to bottom left or center?
+    // Let's use the standard positioning logic if 'save' button exists.
     const saveBtn = document.querySelector('.tool-btn[data-id="save"]');
     if (saveBtn) {
         const rect = saveBtn.getBoundingClientRect();
         savePopup.style.left = `${rect.left}px`;
-        // Position above the button (bottom of popup = top of button - 10px)
-        savePopup.style.bottom = `${window.innerHeight - rect.top + 10}px`;
-        savePopup.style.top = 'auto'; // Ensure top is unset
-        savePopup.style.transform = 'none'; // Ensure transform is unset
+        
+        // Check space above
+        const spaceAbove = rect.top;
+        const spaceBelow = window.innerHeight - rect.bottom;
+        
+        // If not enough space above (threshold ~400px for full popup), and more space below
+        // The popup is taller now with more options.
+        // Let's say max height is 400px.
+        const popupHeight = savePopup.offsetHeight || 400; // Estimate
+        
+        if (spaceAbove < popupHeight && spaceBelow > spaceAbove) {
+             // Below
+             savePopup.style.top = `${rect.bottom + 12}px`;
+             savePopup.style.bottom = 'auto';
+        } else {
+             // Above
+             savePopup.style.bottom = `${window.innerHeight - rect.top + 10}px`;
+             savePopup.style.top = 'auto';
+        }
     } else {
-        // Fallback
-        savePopup.style.left = '20px';
-        savePopup.style.bottom = '80px';
+        // Fallback Center
+        savePopup.style.left = '50%';
+        savePopup.style.top = '50%';
+        savePopup.style.transform = 'translate(-50%, -50%)';
+        savePopup.style.bottom = 'auto';
     }
     
-    // Event Listeners for Options
+    // Event Listeners
     savePopup.querySelectorAll('.save-opt-btn').forEach(btn => {
         btn.onclick = (e) => {
             const group = e.target.dataset.group;
@@ -2124,8 +2461,7 @@ function showSavePopup() {
         };
     });
     
-    // Path Selection
-    let selectedPath = null;
+    let selectedPath = config.initialPath;
     savePopup.querySelector('#btn-select-path').onclick = async () => {
         const path = await ipcRenderer.invoke('annotate-select-path');
         if (path) {
@@ -2134,43 +2470,45 @@ function showSavePopup() {
         }
     };
     
-    // Cancel
     savePopup.querySelector('#btn-cancel-save').onclick = () => {
         savePopup.remove();
     };
     
-    // Confirm
     savePopup.querySelector('#btn-confirm-save').onclick = () => {
-        const scope = savePopup.querySelector('.save-opt-btn[data-group="scope"].active').dataset.value;
-        const format = savePopup.querySelector('.save-opt-btn[data-group="format"].active').dataset.value;
-        const area = savePopup.querySelector('.save-opt-btn[data-group="area"].active').dataset.value;
+        const scope = savePopup.querySelector('.save-opt-btn[data-group="scope"].active')?.dataset.value || 'single';
+        const format = savePopup.querySelector('.save-opt-btn[data-group="format"].active')?.dataset.value || 'image';
+        const area = savePopup.querySelector('.save-opt-btn[data-group="area"].active')?.dataset.value || 'canvas';
+        const includeInk = savePopup.querySelector('#chk-include-ink')?.checked ?? true;
         
-        // Generate content
-        let dataUrl;
-        if (scope === 'single') {
-            // For now only support single page image
-            // Temporarily hide UI elements that shouldn't be captured?
-            // Since we capture canvas, UI (HTML) is not included unless we use electron capture.
-            // If user wants "Screenshot", we need electron capture.
-            // If user wants "Whiteboard Content", canvas.toDataURL is fine.
-            // Assuming "Whiteboard Content" for now.
-            dataUrl = canvasModule.canvas.toDataURL('image/png');
-        } else {
-            // TODO: Multi-page support
-             dataUrl = canvasModule.canvas.toDataURL('image/png');
-        }
+        const result = {
+            scope,
+            format,
+            area,
+            includeInk,
+            path: selectedPath
+        };
 
-        savePopup.remove();
-        
-        ipcRenderer.send('annotate-save-file', { 
-            scope, 
-            format, 
-            area, 
-            path: selectedPath,
-            dataUrl: dataUrl,
-            type: format,
-            name: `annotate-${Date.now()}.${format === 'pdf' ? 'pdf' : 'png'}`
-        });
+        if (config.onConfirm) {
+            config.onConfirm(result);
+            savePopup.remove();
+        } else {
+            // Default Save Logic
+            let dataUrl;
+            if (scope === 'single') {
+                dataUrl = canvasModule.canvas.toDataURL('image/png');
+            } else {
+                 dataUrl = canvasModule.canvas.toDataURL('image/png');
+            }
+
+            savePopup.remove();
+            
+            ipcRenderer.send('annotate-save-file', { 
+                ...result,
+                dataUrl: dataUrl,
+                type: format,
+                name: `annotate-${Date.now()}.${format === 'pdf' ? 'pdf' : 'png'}`
+            });
+        }
     };
 }
 

@@ -2,6 +2,7 @@ const state = require('./state');
 const canvasModule = require('./canvas');
 const objects = require('./objects');
 const selection = require('./selection');
+const booth = require('./booth');
 
 function getHistoryState() {
     return state.getActiveHistory();
@@ -101,6 +102,10 @@ function applyAction(action, isUndo) {
         cam.x = target.x;
         cam.y = target.y;
         cam.z = target.z;
+        
+        if (state.MODE === 'booth') {
+            booth.updateBackgroundTransform(cam);
+        }
     }
     
     canvasModule.renderCanvas();

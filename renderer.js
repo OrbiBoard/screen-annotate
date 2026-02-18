@@ -15,6 +15,51 @@ const booth = require('./modules/booth');
 const screenshot = require('./modules/screenshot');
 const whiteboard = require('./modules/whiteboard');
 
+let boothMinimapStream = null;
+
+async function initBoothMinimapStream(deviceId) {
+    if (boothMinimapStream) {
+        boothMinimapStream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Create or get video element
+    let video = document.getElementById('booth-minimap-video');
+    if (!video) {
+        video = document.createElement('video');
+        video.id = 'booth-minimap-video';
+        video.style.display = 'none'; // Hidden
+        video.autoplay = true;
+        video.muted = true;
+        document.body.appendChild(video);
+    }
+    
+    try {
+        const constraints = {
+            video: { width: 320, height: 240 }, // Low res for minimap
+            audio: false
+        };
+        if (deviceId) {
+            constraints.video.deviceId = { exact: deviceId };
+        }
+        
+        boothMinimapStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = boothMinimapStream;
+    } catch (e) {
+        console.error('Minimap camera init failed:', e);
+    }
+}
+
+ipcRenderer.on('booth-minimap-camera-switch', (event, deviceId) => {
+    initBoothMinimapStream(deviceId);
+});
+
+ipcRenderer.on('booth-freeze', (event, freeze) => {
+    const video = document.getElementById('booth-minimap-video');
+    if (video) {
+        if (freeze) video.pause(); else video.play();
+    }
+});
+
 // --- UI Initialization ---
 
 function initUI() {
@@ -22,6 +67,8 @@ function initUI() {
   if (booth.getHasVideoBooth()) {
       ui.enableVideoBooth();
       booth.initBoothListeners(handleToolClick);
+      // Init minimap stream with default camera
+      initBoothMinimapStream();
   }
   
   booth.setHandleToolClick(handleToolClick);
@@ -209,6 +256,7 @@ window.addEventListener('wheel', (e) => {
                 clientX: e.clientX,
                 clientY: e.clientY
             });
+            booth.updateBackgroundTransform(state.camera);
         }
 
         canvasModule.renderCanvas();
@@ -256,12 +304,69 @@ function handleToolClick(toolId) {
         state.fullscreen.strokes = [];
     } else if (state.MODE === 'annotate') {
         state.annotate.strokes = [];
+    } else if (state.MODE === 'booth') {
+        state.booth.strokes = [];
     } else {
         state.pages[state.currentPageIndex] = [];
     }
     canvasModule.renderCanvas();
     ui.renderToolbar(handleToolClick); 
     return;
+  }
+  if (toolId === 'rotate') {
+      if (state.MODE === 'booth') {
+          // 1. Rotate Background (Video/Image)
+          // Increment rotation state
+          state.booth.bgRotation = (state.booth.bgRotation || 0) + 90;
+          if (state.booth.bgRotation >= 360) state.booth.bgRotation = 0;
+          
+          ipcRenderer.send('video-booth-rotate', state.booth.bgRotation);
+          
+          // 2. Transform Ink (Rotate 90deg around Center)
+          const strokes = state.getActiveStrokes();
+          if (strokes.length > 0) {
+              // Calculate Center (World Coordinates of Screen Center)
+              const cam = state.getActiveCamera();
+              const center = {
+                  x: (window.innerWidth / 2 - cam.x) / cam.z,
+                  y: (window.innerHeight / 2 - cam.y) / cam.z
+              };
+              
+              const historyItems = [];
+              
+              strokes.forEach((stroke, i) => {
+                  const oldStroke = JSON.parse(JSON.stringify(stroke)); // Deep copy
+                  
+                  if (stroke.type === 'pen' && stroke.points) {
+                      stroke.points = stroke.points.map(p => utils.rotatePoint(p, center, 90));
+                  } else if (stroke.type === 'shape') {
+                      if (stroke.start) stroke.start = utils.rotatePoint(stroke.start, center, 90);
+                      if (stroke.end) stroke.end = utils.rotatePoint(stroke.end, center, 90);
+                      // TODO: Rotate vertices for polygon/complex shapes if cached
+                  } else if (['image', 'video', 'browser', 'link'].includes(stroke.type)) {
+                      // Rotate position around center
+                      const p = { x: stroke.x + stroke.w/2, y: stroke.y + stroke.h/2 }; // Object Center
+                      const newP = utils.rotatePoint(p, center, 90);
+                      
+                      // Also rotate the object itself?
+                      stroke.rotation = (stroke.rotation || 0) + (90 * Math.PI / 180);
+                      
+                      // Update position to new center
+                      stroke.x = newP.x - stroke.w/2;
+                      stroke.y = newP.y - stroke.h/2;
+                  }
+                  
+                  historyItems.push({ index: i, before: oldStroke, after: JSON.parse(JSON.stringify(stroke)) });
+              });
+              
+              // Push to History
+              history.pushAction({ type: 'transform', items: historyItems });
+          }
+          
+          canvasModule.renderCanvas();
+          objects.updateDOMObjects(); // Update DOM positions
+      }
+      return;
   }
   if (toolId === 'save') {
     ui.showSavePopup();
@@ -339,6 +444,8 @@ canvasModule.renderCanvas();
 
 if (toolId === 'shape') {
     if (prevTool !== 'shape') {
+        state.currentShape = null; // Fix: Reset shape on entry
+        ui.updateShapeSelection();
         ui.toggleToolMenu('shape');
     }
 } else {
@@ -349,6 +456,15 @@ if (toolId === 'shape') {
 
 // --- Window Listener for Selection (Capture Phase) ---
 window.addEventListener('pointerdown', (e) => {
+  // Fix: Ignore clicks on UI elements (Selection handles, toolbars, popups)
+  if (e.target.closest('#selection-overlay') || 
+      e.target.closest('#selection-toolbar') || 
+      e.target.closest('.tool-popup') ||
+      e.target.closest('.toolbar') ||
+      e.target.closest('.bottom-controls')) {
+      return;
+  }
+
   if (state.currentTool === 'select' || state.currentTool === 'lasso') {
     
     if (state.MODE === 'booth' && state.currentTool === 'select') return;
@@ -469,6 +585,7 @@ canvasModule.canvas.addEventListener('pointerdown', (e) => {
   }
   
   if (state.currentTool === 'shape') {
+    if (!state.currentShape) return; // Fix: Require shape selection
     state.isDrawing = true;
     if (!state.pendingShape) {
         state.shapeStart = point;
@@ -543,6 +660,7 @@ canvasModule.canvas.addEventListener('pointermove', (e) => {
             clientX: e.clientX,
             clientY: e.clientY
         });
+        booth.updateBackgroundTransform(camera);
     }
     
     canvasModule.renderCanvas();
@@ -797,7 +915,17 @@ canvasModule.canvas.addEventListener('pointerup', (e) => {
               history.pushAction({ type: 'add', strokes: [shape] });
               
               if (!state.isShapePinned) {
-                  handleToolClick('pen');
+                  // Switch to Select Mode and Select the new shape
+                  const newStrokeIndex = strokes.length - 1;
+                  state.selectedStrokeIndices = [newStrokeIndex];
+                  selection.updateSelectionBounds();
+                  selection.showSelectionToolbar();
+                  
+                  handleToolClick('select');
+                  
+                  // Reset shape status
+                  state.currentShape = null;
+                  ui.updateShapeStatus('', 0);
               }
           }
       } else {
@@ -821,7 +949,17 @@ canvasModule.canvas.addEventListener('pointerup', (e) => {
           state.pendingShape = null;
           
           if (!state.isShapePinned) {
-              handleToolClick('pen');
+              // Switch to Select Mode and Select the new shape
+              const newStrokeIndex = strokes.length - 1;
+              state.selectedStrokeIndices = [newStrokeIndex];
+              selection.updateSelectionBounds();
+              selection.showSelectionToolbar();
+              
+              handleToolClick('select');
+              
+              // Reset shape status
+              state.currentShape = null;
+              ui.updateShapeStatus('', 0);
           } else {
               ui.updateShapeStatus(state.currentShape, 1);
           }
