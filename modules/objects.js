@@ -17,12 +17,12 @@ function updateDOMObjects() {
         return;
     }
 
-    const strokes = state.pages[state.currentPageIndex] || [];
+    const strokes = state.getActiveStrokes() || [];
     const selection = getSelectionModule();
 
     // Map existing wrappers by ID
     const existingWrappers = new Map();
-    document.querySelectorAll('.dom-object-wrapper').forEach(el => {
+    document.querySelectorAll('.dom-object-wrapper, .text-object-wrapper').forEach(el => {
         if (el.dataset.id) existingWrappers.set(el.dataset.id, el);
     });
 
@@ -30,7 +30,7 @@ function updateDOMObjects() {
     const usedIds = new Set();
 
     strokes.forEach((obj, index) => {
-        if (!['video', 'audio', 'browser', 'link'].includes(obj.type)) return;
+        if (!['video', 'audio', 'browser', 'link', 'text'].includes(obj.type)) return;
 
         const id = `obj-${index}`;
         usedIds.add(id);
@@ -61,6 +61,7 @@ function updateDOMObjects() {
             if (wrapper) wrapper.remove();
             wrapper = document.createElement('div');
             wrapper.className = 'dom-object-wrapper';
+            wrapper.draggable = false; // Fix: Prevent native drag to allow lasso/click
             wrapper.dataset.id = id;
             wrapper.dataset.src = obj.src; // Cache for check
             wrapper.dataset.type = obj.type; // Cache for check
@@ -77,7 +78,7 @@ function updateDOMObjects() {
                 };
             } else if (obj.type === 'text') {
                 // Text Object Rendering
-                wrapper.className = 'text-object-wrapper';
+                wrapper.classList.add('text-object-wrapper');
                 
                 // Content Editable Div for editing
                 const content = document.createElement('div');
@@ -167,6 +168,7 @@ function updateDOMObjects() {
                     if (obj.thumb) {
                         const img = document.createElement('img');
                         img.className = 'preview-thumb';
+                        img.draggable = false;
                         img.src = obj.thumb;
                         wrapper.appendChild(img);
                     }
@@ -389,7 +391,8 @@ function updateMediaControlsPosition(wrapper) {
         if (state.selectedStrokeIndices.length === 1 && state.selectedStrokeIndices[0] === state.activeMedia.index) {
              const btn = selectionToolbar.querySelector('.custom-action-btn'); // The play button is usually first
              if (btn) {
-                 const media = wrapper.querySelector(state.activeMedia.index === state.selectedStrokeIndices[0] ? state.pages[state.currentPageIndex][state.activeMedia.index].type : 'video');
+                 const strokes = state.getActiveStrokes();
+                 const media = wrapper.querySelector(state.activeMedia.index === state.selectedStrokeIndices[0] ? strokes[state.activeMedia.index].type : 'video');
                  // Wait, we can just check the media element passed to this function? 
                  // No, updateMediaControlsPosition takes wrapper.
                  // Let's find media.

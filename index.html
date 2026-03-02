@@ -5,6 +5,7 @@
   <title>屏幕批注</title>
   <link rel="stylesheet" href="../../renderer/remixicon-local.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style-additions.css">
 </head>
 <body>
   <canvas id="canvas-layer"></canvas>
@@ -13,7 +14,17 @@
     <!-- Handles will be added via JS -->
   </div>
 
-  <!-- Tool Settings Popup -->
+  <!-- More Popup -->
+  <div id="more-popup" class="tool-settings-popup" style="display: none; padding: 12px; width: 320px;">
+    <div class="more-popup-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-size: 14px; font-weight: bold; color: var(--fg);">更多</span>
+        <button class="icon-only-btn" id="btn-more-edit" title="编辑"><i class="ri-edit-line"></i></button>
+    </div>
+    <div id="more-tools-grid" class="more-tools-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+        <!-- Injected -->
+    </div>
+  </div>
+
   <div id="tool-settings-popup" class="tool-settings-popup" style="display: none;">
     <div id="pen-settings" class="settings-group" style="display: none;">
        <div class="color-options">
@@ -334,6 +345,13 @@
     <!-- Webview will be injected here -->
   </div>
 
+  <!-- Settings Layer -->
+  <div id="settings-layer" class="settings-layer" style="display: none;">
+      <div class="settings-window">
+          <webview id="settings-webview" src="about:blank" style="width: 100%; height: 100%;" partition="persist:annotate-settings" webpreferences="nodeIntegration=yes, contextIsolation=no"></webview>
+      </div>
+  </div>
+
   <button id="fullscreen-exit-btn" class="fullscreen-exit-btn" style="display: none;">
       <i class="ri-fullscreen-exit-line"></i> 退出全屏
   </button>
@@ -361,6 +379,7 @@
           <button id="btn-shot-full" class="tool-btn small">全屏截图</button>
           <button id="btn-shot-confirm" class="tool-btn small primary">确认</button>
           <button id="btn-shot-reselect" class="tool-btn small">重新选择</button>
+          <button id="btn-shot-cancel" class="tool-btn small">取消</button>
       </div>
   </div>
 

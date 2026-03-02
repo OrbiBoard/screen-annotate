@@ -143,31 +143,28 @@ function renderCanvas() {
 
 
   // 1. Render Current Page Strokes (Ink)
-  const strokes = state.getActiveStrokes();
-  strokes.forEach(stroke => {
-      if (stroke.type === 'pen') {
-        drawStroke(stroke);     
-      } else if (stroke.type === 'shape') {
-        shapesModule.drawShape(ctx, stroke);
-      } else if (stroke.type === 'image') {
-        drawImageObj(stroke); // Render images on canvas (z-index below DOM objects)
-        // Wait, images are DOM objects now? 
-        // In objects.js, we create DOM wrappers for 'image'? 
-        // No, objects.js handles 'video', 'audio', 'browser', 'link', 'text'.
-        // 'image' type is NOT handled in updateDOMObjects loop in objects.js (unless we add it).
-        // Check objects.js: if (!['video', 'audio', 'browser', 'link', 'text'].includes(obj.type)) return;
-        // So images are NOT DOM objects currently?
-        // But drawImageObj exists here.
-        // And IPC handler in renderer.js pushes 'image' type stroke.
-        // So images are canvas-drawn.
-        // But the user said "图片无法正确插入" (Image cannot be inserted correctly).
-        // If it's canvas drawn, maybe drawImageObj is failing or image not loaded?
-        // Ah, `img` property is an Image object. If it's not loaded when render called?
-        // renderer.js: img.onload = ... strokes.push(obj); renderCanvas();
-        // So it should be loaded.
-        // Let's check drawImageObj implementation.
-      }
-  });
+  if (!state.hideStrokes) {
+      const strokes = state.getActiveStrokes();
+      strokes.forEach(stroke => {
+          if (stroke.type === 'pen') {
+            drawStroke(stroke);     
+          } else if (stroke.type === 'shape') {
+            shapesModule.drawShape(ctx, stroke);
+          } else if (stroke.type === 'image') {
+            drawImageObj(stroke); 
+          } else if (['video', 'audio', 'browser', 'link'].includes(stroke.type)) {
+              // Also render these if implemented
+              // Currently objects.js handles DOM elements, but maybe we want placeholders on canvas for capture?
+              // For captureCanvas, DOM elements are NOT captured by toDataURL!
+              // We need to draw them on canvas if we want them in the image.
+              // This is a known limitation of canvas.toDataURL vs desktopCapturer.
+              // If we are in Whiteboard mode, we rely on canvas.
+              // So we should try to draw images/videos to canvas?
+              // drawImageObj handles 'image'.
+              // For 'video', we can draw current frame?
+          }
+      });
+  }
 
   // 1.5 Render Pending Shape (between steps) OR Shape Preview
   if (state.currentTool === 'shape' && (state.isDrawing || state.pendingShape)) {
@@ -633,6 +630,115 @@ function fitCameraToContent() {
     require('./objects').updateDOMObjects();
 }
 
+function captureCanvas(options = {}) {
+    const { area = 'viewport', includeBackground = true, includeInk = true } = options;
+    
+    const originalW = canvas.width;
+    const originalH = canvas.height;
+    const originalCam = { ...state.getActiveCamera() };
+    
+    let width = originalW;
+    let height = originalH;
+    let minX = 0;
+    let minY = 0;
+    
+    if (area === 'canvas') {
+        // Calculate bounds of all content
+        minX = Infinity; minY = Infinity; 
+        let maxX = -Infinity; maxY = -Infinity;
+        
+        const strokes = state.getActiveStrokes();
+        if (strokes.length === 0) {
+            minX = 0; minY = 0; maxX = originalW; maxY = originalH;
+        } else {
+            strokes.forEach(stroke => {
+                if (stroke.type === 'pen' && stroke.points) {
+                    stroke.points.forEach(p => {
+                        if (p.x < minX) minX = p.x;
+                        if (p.y < minY) minY = p.y;
+                        if (p.x > maxX) maxX = p.x;
+                        if (p.y > maxY) maxY = p.y;
+                    });
+                } else if (['image', 'video', 'audio', 'browser', 'link'].includes(stroke.type)) {
+                    if (stroke.x < minX) minX = stroke.x;
+                    if (stroke.y < minY) minY = stroke.y;
+                    if (stroke.x + stroke.w > maxX) maxX = stroke.x + stroke.w;
+                    if (stroke.y + stroke.h > maxY) maxY = stroke.y + stroke.h;
+                } else if (stroke.type === 'shape') {
+                     // Approximate
+                     if (stroke.start) {
+                         minX = Math.min(minX, stroke.start.x);
+                         maxX = Math.max(maxX, stroke.start.x);
+                         minY = Math.min(minY, stroke.start.y);
+                         maxY = Math.max(maxY, stroke.start.y);
+                     }
+                     if (stroke.end) {
+                         minX = Math.min(minX, stroke.end.x);
+                         maxX = Math.max(maxX, stroke.end.x);
+                         minY = Math.min(minY, stroke.end.y);
+                         maxY = Math.max(maxY, stroke.end.y);
+                     }
+                }
+            });
+            
+            // If invalid bounds (e.g. no strokes found), default to screen
+            if (minX === Infinity) {
+                minX = 0; minY = 0; maxX = originalW; maxY = originalH;
+            } else {
+                // Add some padding
+                const padding = 50;
+                minX -= padding;
+                minY -= padding;
+                maxX += padding;
+                maxY += padding;
+            }
+        }
+        
+        width = Math.ceil(maxX - minX);
+        height = Math.ceil(maxY - minY);
+        
+        // Ensure positive dimensions
+        width = Math.max(1, width);
+        height = Math.max(1, height);
+        
+        // Resize canvas
+        canvas.width = width;
+        canvas.height = height;
+        
+        // Reset Camera to fit bounds at (0,0)
+        const cam = state.getActiveCamera();
+        cam.x = -minX;
+        cam.y = -minY;
+        cam.z = 1;
+        cam.rotation = 0;
+    }
+    
+    if (!includeInk) state.hideStrokes = true;
+    renderCanvas();
+    if (!includeInk) state.hideStrokes = false;
+    
+    // Draw Background if needed
+    if (includeBackground && state.MODE !== 'annotate') {
+        const ctx = canvas.getContext('2d');
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        const bg = state.pageBackgrounds[state.currentPageIndex] || '#071a12';
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
+    }
+    
+    const dataUrl = canvas.toDataURL('image/png');
+    
+    // Restore
+    canvas.width = originalW;
+    canvas.height = originalH;
+    Object.assign(state.getActiveCamera(), originalCam);
+    renderCanvas();
+    
+    return dataUrl;
+}
+
 function autoPanOnEdge(clientX, clientY) {
     const edgeThreshold = 50; 
     const panSpeed = 10; 
@@ -666,5 +772,6 @@ module.exports = {
     drawImageObj,
     performEraserAction,
     fitCameraToContent,
-    autoPanOnEdge
+    autoPanOnEdge,
+    captureCanvas
 };

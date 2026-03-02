@@ -15,11 +15,134 @@ function getHistory() {
 // DOM Elements
 const toolbar = document.getElementById('main-toolbar');
 
+// Helper for Interactive Elements
+function makeInteractive(el) {
+    if (!el) return;
+    // User requested to remove mouseenter/leave/move for transparency
+}
+
+// Function to update window shape based on visible interactive elements
+function updateInteractiveShape(isFullScreenOverride = false) {
+    // Only run this logic if we are in a window that supports setShape (e.g. controls window)
+    // We can assume we are if this function is called, or check role
+    if (!document.body.classList.contains('role-controls') && !document.body.classList.contains('role-desktop-toolbar')) {
+        return;
+    }
+
+    // In whiteboard/booth mode, don't set any shape - entire window should be interactive
+    if (state.MODE !== 'annotate') {
+        ipcRenderer.send('annotate-update-shape', []);
+        return;
+    }
+
+    const rects = [];
+    
+    // Check for full screen overlays first
+    const settingsLayer = document.getElementById('settings-layer');
+    if (settingsLayer && settingsLayer.style.display !== 'none') {
+        isFullScreenOverride = true;
+    }
+
+    const screenshotMask = document.getElementById('screenshot-mask');
+    if (screenshotMask && screenshotMask.style.display !== 'none') {
+         isFullScreenOverride = true;
+    }
+    
+    if (isFullScreenOverride) {
+        rects.push({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
+        ipcRenderer.send('annotate-update-shape', rects);
+        return;
+    }
+
+    // Collect UI elements
+    const selectors = [
+        '#main-toolbar', 
+        '.tool-popup', 
+        '.tool-settings-popup', 
+        '#save-popup', 
+        '#shape-status-popup', 
+        '#page-preview-popup', 
+        '#selection-toolbar',
+        '.bottom-controls',
+        '#left-controls',
+        '#page-controls',
+        '#booth-controls',
+        '#more-popup',
+        '#screenshot-minibar',
+        '#wb-continue-toast',
+        '#mode-toast',
+        '#insert-menu-popup',
+        '#adjust-popup',
+        '#text-edit-popup'
+    ];
+
+    selectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+            const style = window.getComputedStyle(el);
+            if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
+                const r = el.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0) {
+                    rects.push({
+                        x: Math.round(r.x),
+                        y: Math.round(r.y),
+                        width: Math.round(r.width),
+                        height: Math.round(r.height)
+                    });
+                }
+            }
+        });
+    });
+
+    // Special handling for desktop toolbar window
+    if (document.body.classList.contains('role-desktop-toolbar')) {
+        // For desktop toolbar, calculate shape based on actual toolbar position
+        const toolbar = document.getElementById('main-toolbar');
+        if (toolbar) {
+            const style = window.getComputedStyle(toolbar);
+            if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
+                const r = toolbar.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0) {
+                    // Shape is relative to window, toolbar is centered at bottom
+                    // Calculate position relative to window
+                    const padding = 10;
+                    const shapeRect = {
+                        x: padding,
+                        y: padding,
+                        width: Math.ceil(r.width + padding),
+                        height: Math.ceil(r.height + padding)
+                    };
+                    ipcRenderer.send('annotate-update-shape', [shapeRect]);
+                    return;
+                }
+            }
+        }
+        // Fallback: use full window
+        ipcRenderer.send('annotate-update-shape', [{ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }]);
+    } else {
+        ipcRenderer.send('annotate-update-shape', rects);
+    }
+}
+
+makeInteractive(toolbar);
+makeInteractive(document.getElementById('tool-settings-popup'));
+makeInteractive(document.getElementById('save-popup'));
+makeInteractive(document.getElementById('page-preview-popup'));
+makeInteractive(document.getElementById('shape-status-popup'));
+makeInteractive(document.getElementById('selection-toolbar'));
+makeInteractive(document.getElementById('insert-menu-popup'));
+makeInteractive(document.getElementById('adjust-popup'));
+makeInteractive(document.getElementById('text-edit-popup'));
+makeInteractive(document.getElementById('booth-controls'));
+makeInteractive(document.getElementById('page-controls'));
+makeInteractive(document.getElementById('left-controls'));
+makeInteractive(document.getElementById('settings-layer')); // Ensure settings layer is interactive
+
 let screenInfo = null;
 let currentToolbarCallback = null;
 
 async function initScreenInfo() {
     try {
+        await loadConfig();
         screenInfo = await ipcRenderer.invoke('annotate-get-screen-info');
         if (currentToolbarCallback) {
             renderToolbar(currentToolbarCallback);
@@ -110,6 +233,7 @@ function restoreToolbarState() {
 }
 
 const toolSettingsPopup = document.getElementById('tool-settings-popup');
+const morePopup = document.getElementById('more-popup');
 const penSettings = document.getElementById('pen-settings');
 const panSettings = document.getElementById('pan-settings');
 const shapeSettings = document.getElementById('shape-settings');
@@ -135,11 +259,12 @@ const TOOLS = {
     { id: 'eraser', icon: 'ri-eraser-line', label: '橡皮' },
     { id: 'clear', icon: 'ri-delete-bin-line', label: '清页' },
     { id: 'select', icon: 'ri-cursor-fill', label: '套索选' },
-    { id: 'whiteboard', icon: 'ri-artboard-line', label: '白板' },
     { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
     { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' },
+    { id: 'whiteboard', icon: 'ri-artboard-line', label: '白板' },
     { id: 'save', icon: 'ri-save-line', label: '保存' },
-    { id: 'close', icon: 'ri-close-circle-line', label: '关闭' }
+    { id: 'settings', icon: 'ri-settings-3-line', label: '设置' },
+    { id: 'more', icon: 'ri-apps-2-line', label: '更多' }
   ],
   whiteboard: [
     { id: 'select', icon: 'ri-cursor-fill', label: '选择' },
@@ -148,7 +273,8 @@ const TOOLS = {
     { id: 'pan', icon: 'ri-drag-move-line', label: '漫游' },
     { id: 'shape', icon: 'ri-shape-line', label: '形状' },
     { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
-    { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' }
+    { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' },
+    { id: 'more', icon: 'ri-apps-2-line', label: '更多' }
   ],
   booth: [
     { id: 'pan', icon: 'ri-drag-move-line', label: '漫游' }, // Pan logic in Booth
@@ -157,7 +283,19 @@ const TOOLS = {
     { id: 'lasso', icon: 'ri-focus-3-line', label: '套索' }, // Lasso logic
     { id: 'rotate', icon: 'ri-refresh-line', label: '旋转' },
     { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
-    { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' }
+    { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' },
+    { id: 'more', icon: 'ri-apps-2-line', label: '更多' }
+  ],
+  ppt: [
+    { id: 'select', icon: 'ri-cursor-fill', label: '选择' },
+    { id: 'pen', icon: 'ri-pencil-fill', label: '书写' },
+    { id: 'eraser', icon: 'ri-eraser-line', label: '橡皮' },
+    { id: 'pan', icon: 'ri-drag-move-line', label: '漫游' },
+    { id: 'shape', icon: 'ri-shape-line', label: '形状' },
+    { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
+    { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' },
+    { id: 'settings', icon: 'ri-settings-3-line', label: '设置' },
+    { id: 'more', icon: 'ri-apps-2-line', label: '更多' }
   ]
 };
 
@@ -233,173 +371,223 @@ function renderToolbar(handleToolClickCallback) {
   restoreToolbarState();
   
   // Add Drag Handle
-  const handle = document.createElement('div');
-  handle.className = 'toolbar-drag-handle';
-  handle.innerHTML = '<i class="ri-drag-move-2-fill"></i>';
-  toolbar.appendChild(handle);
-  
-  // Drag Logic
-  handle.onpointerdown = (e) => {
-      e.stopPropagation();
-      handle.setPointerCapture(e.pointerId);
-      toolbarState.isDragging = true;
+  if (!state.toolbarConfig || state.toolbarConfig.showDragHandle !== false) {
+      const handle = document.createElement('div');
+      handle.className = 'toolbar-drag-handle';
+      handle.innerHTML = '<i class="ri-drag-move-2-fill"></i>';
+      toolbar.appendChild(handle);
       
-      const rect = toolbar.getBoundingClientRect();
-      toolbarState.offsetX = e.clientX - rect.left;
-      toolbarState.offsetY = e.clientY - rect.top;
-      
-      // Force fixed position for dragging
-      toolbar.style.position = 'fixed';
-      toolbar.style.left = `${rect.left}px`;
-      toolbar.style.top = `${rect.top}px`;
-      toolbar.style.setProperty('bottom', 'auto', 'important');
-      toolbar.style.setProperty('right', 'auto', 'important');
-      toolbar.style.transform = 'none';
-      
-      // Reset snap state for this drag
-      toolbarState.willSnap = false;
-      
-      // If currently snapped, disable snapping for this drag session (allow pulling away)
-      toolbarState.disableSnapForThisSession = toolbarState.isSnapped;
-  };
-  
-  handle.onpointermove = (e) => {
-      if (!toolbarState.isDragging) return;
-      
-      let x = e.clientX - toolbarState.offsetX;
-      let y = e.clientY - toolbarState.offsetY;
-      
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const tbW = toolbar.offsetWidth;
-      const tbH = toolbar.offsetHeight;
-      
-      // Constrain to screen
-      x = Math.max(0, Math.min(w - tbW, x));
-      y = Math.max(0, Math.min(h - tbH, y));
-      
-      const defaultX = (w - tbW) / 2;
-      const defaultY = h - tbH - toolbarState.bottomOffset;
-      const snapThreshold = 50;
-      
-      let shouldSnap = false;
-      
-      
-      let snapTargetX = defaultX;
-      let snapTargetY = defaultY;
-      let snapType = 'center';
-
-      if (!toolbarState.disableSnapForThisSession) {
-          const targets = [{ x: defaultX, y: defaultY, type: 'center' }];
+      // Drag Logic
+      handle.onpointerdown = (e) => {
+          e.stopPropagation();
+          handle.setPointerCapture(e.pointerId);
           
-          if (state.MODE === 'annotate') {
-              // Add Left/Right snap points
-              const margin = 20;
-              targets.push({ x: margin, y: defaultY, type: 'left' }); // Bottom Left
-              targets.push({ x: w - tbW - margin, y: defaultY, type: 'right' }); // Bottom Right
-          }
-
-          let closestDist = Infinity;
-          
-          targets.forEach(t => {
-              const dist = Math.hypot(x - t.x, y - t.y);
-              if (dist < closestDist) {
-                  closestDist = dist;
-                  snapTargetX = t.x;
-                  snapTargetY = t.y;
-                  snapType = t.type;
-              }
-          });
-
-          if (closestDist < snapThreshold) {
-              shouldSnap = true;
-          }
-      }
-      
-      if (shouldSnap) {
-          toolbar.style.left = `${snapTargetX}px`;
-          toolbar.style.top = `${snapTargetY}px`;
-          toolbar.style.setProperty('right', 'auto', 'important');
-          toolbar.style.setProperty('bottom', 'auto', 'important');
-          toolbar.style.boxShadow = '0 0 0 2px var(--accent)';
-          toolbarState.willSnap = true;
-          toolbarState.snapType = snapType;
-      } else {
-          toolbar.style.left = `${x}px`;
-          toolbar.style.top = `${y}px`;
-          toolbar.style.setProperty('right', 'auto', 'important');
-          toolbar.style.setProperty('bottom', 'auto', 'important');
-          toolbar.style.boxShadow = '';
-          toolbarState.willSnap = false;
-      }
-      
-      updatePopupPositions(); // Sync popups
-  };
-  
-  handle.onpointerup = (e) => {
-      if (!toolbarState.isDragging) return;
-      toolbarState.isDragging = false;
-      handle.releasePointerCapture(e.pointerId);
-      toolbar.style.boxShadow = '';
-      
-      if (toolbarState.willSnap) {
-          toolbarState.isSnapped = true;
-          
-          // Clear any !important flags from drag
-          toolbar.style.removeProperty('right');
-          toolbar.style.removeProperty('bottom');
-          
-          if (toolbarState.snapType === 'left') {
-              toolbar.style.position = 'fixed';
-              toolbar.style.left = '20px';
-              toolbar.style.right = 'auto';
-              toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
-              toolbar.style.top = 'auto';
-              toolbar.style.transform = 'none';
-          } else if (toolbarState.snapType === 'right') {
-              toolbar.style.position = 'fixed';
-              toolbar.style.left = 'auto';
-              toolbar.style.right = '20px';
-              toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
-              toolbar.style.top = 'auto';
-              toolbar.style.transform = 'none';
-          } else {
-              // Center (default)
-              // Note: We need to respect bottom offset even for center if not using CSS 'bottom: 20px'
-              // Wait, previous code used CSS defaults for center.
-              // CSS likely has `bottom: 20px; left: 50%; transform: translateX(-50%);`
-              // If we want to change bottom offset, we must override it.
+          // If Desktop Toolbar Window, move window
+          if (document.body.classList.contains('role-desktop-toolbar')) {
+              let lastX = e.screenX;
+              let lastY = e.screenY;
               
-              toolbar.style.position = 'fixed'; // Ensure fixed
-              toolbar.style.left = '50%';
-              toolbar.style.transform = 'translateX(-50%)';
-              toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
-              toolbar.style.top = 'auto';
-              toolbar.style.right = 'auto';
+              const onMove = (em) => {
+                  const dx = em.screenX - lastX;
+                  const dy = em.screenY - lastY;
+                  ipcRenderer.send('annotate-window-move', { x: dx, y: dy });
+                  lastX = em.screenX;
+                  lastY = em.screenY;
+              };
+              
+              const onUp = (eu) => {
+                  handle.releasePointerCapture(eu.pointerId);
+                  window.removeEventListener('pointermove', onMove);
+                  window.removeEventListener('pointerup', onUp);
+              };
+              
+              window.addEventListener('pointermove', onMove);
+              window.addEventListener('pointerup', onUp);
+              return;
           }
-      } else {
-          toolbarState.isSnapped = false;
-      }
-      saveCurrentToolbarState();
-      updatePopupPositions();
-  };
+
+          toolbarState.isDragging = true;
+          
+          const rect = toolbar.getBoundingClientRect();
+          toolbarState.offsetX = e.clientX - rect.left;
+          toolbarState.offsetY = e.clientY - rect.top;
+          
+          // Force fixed position for dragging
+          toolbar.style.position = 'fixed';
+          toolbar.style.left = `${rect.left}px`;
+          toolbar.style.top = `${rect.top}px`;
+          toolbar.style.setProperty('bottom', 'auto', 'important');
+          toolbar.style.setProperty('right', 'auto', 'important');
+          toolbar.style.transform = 'none';
+          
+          // Reset snap state for this drag
+          toolbarState.willSnap = false;
+          
+          // If currently snapped, disable snapping for this drag session (allow pulling away)
+          toolbarState.disableSnapForThisSession = toolbarState.isSnapped;
+          
+          updateInteractiveShape(true); // Fullscreen shape during drag
+      };
+      
+      handle.onpointermove = (e) => {
+          if (!toolbarState.isDragging) return;
+          
+          let x = e.clientX - toolbarState.offsetX;
+          let y = e.clientY - toolbarState.offsetY;
+          
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          const tbW = toolbar.offsetWidth;
+          const tbH = toolbar.offsetHeight;
+          
+          // Constrain to screen
+          x = Math.max(0, Math.min(w - tbW, x));
+          y = Math.max(0, Math.min(h - tbH, y));
+          
+          const defaultX = (w - tbW) / 2;
+          const defaultY = h - tbH - toolbarState.bottomOffset;
+          const snapThreshold = 50;
+          
+          let shouldSnap = false;
+          
+          
+          let snapTargetX = defaultX;
+          let snapTargetY = defaultY;
+          let snapType = 'center';
+
+          if (!toolbarState.disableSnapForThisSession) {
+              const targets = [{ x: defaultX, y: defaultY, type: 'center' }];
+              
+              if (state.MODE === 'annotate') {
+                  // Add Left/Right snap points
+                  const margin = 20;
+                  targets.push({ x: margin, y: defaultY, type: 'left' }); // Bottom Left
+                  targets.push({ x: w - tbW - margin, y: defaultY, type: 'right' }); // Bottom Right
+              }
+
+              let closestDist = Infinity;
+              
+              targets.forEach(t => {
+                  const dist = Math.hypot(x - t.x, y - t.y);
+                  if (dist < closestDist) {
+                      closestDist = dist;
+                      snapTargetX = t.x;
+                      snapTargetY = t.y;
+                      snapType = t.type;
+                  }
+              });
+
+              if (closestDist < snapThreshold) {
+                  shouldSnap = true;
+              }
+          }
+          
+          if (shouldSnap) {
+              toolbar.style.left = `${snapTargetX}px`;
+              toolbar.style.top = `${snapTargetY}px`;
+              toolbar.style.setProperty('right', 'auto', 'important');
+              toolbar.style.setProperty('bottom', 'auto', 'important');
+              toolbar.style.boxShadow = '0 0 0 2px var(--accent)';
+              toolbarState.willSnap = true;
+              toolbarState.snapType = snapType;
+          } else {
+              toolbar.style.left = `${x}px`;
+              toolbar.style.top = `${y}px`;
+              toolbar.style.setProperty('right', 'auto', 'important');
+              toolbar.style.setProperty('bottom', 'auto', 'important');
+              toolbar.style.boxShadow = '';
+              toolbarState.willSnap = false;
+          }
+          
+          updatePopupPositions(); // Sync popups
+      };
+      
+      handle.onpointerup = (e) => {
+          if (!toolbarState.isDragging) return;
+          toolbarState.isDragging = false;
+          handle.releasePointerCapture(e.pointerId);
+          toolbar.style.boxShadow = '';
+          
+          if (toolbarState.willSnap) {
+              toolbarState.isSnapped = true;
+              
+              // Clear any !important flags from drag
+              toolbar.style.removeProperty('right');
+              toolbar.style.removeProperty('bottom');
+              
+              if (toolbarState.snapType === 'left') {
+                  toolbar.style.position = 'fixed';
+                  toolbar.style.left = '20px';
+                  toolbar.style.right = 'auto';
+                  toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
+                  toolbar.style.top = 'auto';
+                  toolbar.style.transform = 'none';
+              } else if (toolbarState.snapType === 'right') {
+                  toolbar.style.position = 'fixed';
+                  toolbar.style.left = 'auto';
+                  toolbar.style.right = '20px';
+                  toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
+                  toolbar.style.top = 'auto';
+                  toolbar.style.transform = 'none';
+              } else {
+                  // Center (default)
+                  toolbar.style.position = 'fixed'; // Ensure fixed
+                  toolbar.style.left = '50%';
+                  toolbar.style.transform = 'translateX(-50%)';
+                  toolbar.style.bottom = `${toolbarState.bottomOffset}px`;
+                  toolbar.style.top = 'auto';
+                  toolbar.style.right = 'auto';
+              }
+          } else {
+              toolbarState.isSnapped = false;
+          }
+          saveCurrentToolbarState();
+          updatePopupPositions();
+          updateInteractiveShape(false); // Restore shape
+      };
+  }
 
   let toolSet;
-  if (state.MODE === 'booth') {
-      toolSet = TOOLS.booth;
+  if (state.toolbarConfig && state.toolbarConfig[state.MODE]) {
+      // Use configured
+      toolSet = JSON.parse(JSON.stringify(state.toolbarConfig[state.MODE]));
+      toolSet = toolSet.filter(t => t.visible !== false);
   } else {
-      toolSet = state.MODE === 'annotate' ? TOOLS.annotate : TOOLS.whiteboard;
+      if (state.MODE === 'booth') {
+          toolSet = TOOLS.booth;
+      } else if (state.MODE === 'ppt') {
+          toolSet = TOOLS.ppt;
+      } else {
+          toolSet = state.MODE === 'annotate' ? TOOLS.annotate : TOOLS.whiteboard;
+      }
+
+      if (state.MODE === 'annotate' && state.currentTool === 'mouse') {
+          const hiddenTools = ['undo', 'redo', 'select'];
+          toolSet = toolSet.filter(t => !hiddenTools.includes(t.id));
+      }
+      
+      if (state.MODE === 'booth') {
+          toolSet = toolSet.filter(t => t.id !== 'close');
+      }
   }
 
-  if (state.MODE === 'annotate' && state.currentTool === 'mouse') {
-      const hiddenTools = ['undo', 'redo', 'select'];
-      toolSet = toolSet.filter(t => !hiddenTools.includes(t.id));
-  }
-  
-  // Fix 5: In Booth Mode, hide 'close' from main toolbar because it's in left-controls
-  if (state.MODE === 'booth') {
-      toolSet = toolSet.filter(t => t.id !== 'close');
-  }
+  // Ensure settings button exists in annotate/whiteboard/ppt mode (Fix for missing settings in custom config)
+   if (['annotate', 'whiteboard', 'ppt'].includes(state.MODE)) {
+       if (!toolSet.find(t => t.id === 'settings')) {
+           // Clone to avoid modifying original TOOLS reference if it wasn't copied yet
+           if (toolSet === TOOLS.annotate || toolSet === TOOLS.whiteboard || toolSet === TOOLS.ppt) {
+               toolSet = [...toolSet];
+           }
+           
+           const moreIdx = toolSet.findIndex(t => t.id === 'more');
+           const settingsBtn = { id: 'settings', icon: 'ri-settings-3-line', label: '设置' };
+           if (moreIdx >= 0) {
+               toolSet.splice(moreIdx, 0, settingsBtn);
+           } else {
+               toolSet.push(settingsBtn);
+           }
+       }
+   }
 
   toolSet.forEach(tool => {
     if (tool.type === 'group') {
@@ -450,12 +638,20 @@ function renderToolbar(handleToolClickCallback) {
         btn.dataset.id = tool.id; 
         btn.innerHTML = `<i class="${tool.icon}"></i><span>${tool.label}</span>`;
         
-        btn.onclick = (e) => handleToolClickCallback(tool.id);
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            handleToolClickCallback(tool.id);
+        };
         
         toolbar.appendChild(btn);
     }
   });
-  
+
+  // Force pointer-events to be recalculated (fix for first-open click issue)
+  toolbar.style.pointerEvents = 'auto';
+  // Force reflow to ensure style is applied
+  void toolbar.offsetHeight;
+
   // Show/Hide Pan Overlay
   if (state.MODE === 'booth' || state.currentTool === 'pan') {
       panOverlay.style.display = 'flex';
@@ -530,6 +726,7 @@ function renderToolbar(handleToolClickCallback) {
           }
       });
   }
+  updateInteractiveShape(); // Update shape after rendering
 }
 
 function updateMinimap() {
@@ -919,67 +1116,107 @@ function toggleToolMenu(type) {
   if (state.isMenuOpen && toolSettingsPopup.dataset.type === type) {
     toolSettingsPopup.style.display = 'none';
     state.isMenuOpen = false;
+    
+    // Resize window back if in desktop toolbar mode
+    if (document.body.classList.contains('role-desktop-toolbar')) {
+        const tb = document.getElementById('main-toolbar');
+        if (tb) {
+            const rect = tb.getBoundingClientRect();
+            ipcRenderer.send('resize-window', { width: Math.ceil(rect.width + 20), height: Math.ceil(rect.height + 20) });
+            // Update shape to toolbar only
+            setTimeout(() => {
+                const padding = 10;
+                const shapeRect = {
+                    x: padding,
+                    y: padding,
+                    width: Math.ceil(rect.width + padding),
+                    height: Math.ceil(rect.height + padding)
+                };
+                ipcRenderer.send('annotate-update-shape', [shapeRect]);
+            }, 50);
+        }
+    } else {
+        updateInteractiveShape();
+    }
   } else {
     // Hide status popup if opening main menu
     shapeStatusPopup.style.display = 'none';
     
-    // Fix for Issue 2: Align menu with button
-    const btn = document.querySelector(`.tool-btn[data-id="${type}"]`);
-    if (btn) {
-        // Pre-set content display to calculate correct width
-        toolSettingsPopup.dataset.type = type;
-        penSettings.style.display = type === 'pen' ? 'flex' : 'none';
-        eraserSettings.style.display = type === 'eraser' ? 'flex' : 'none';
-        if (panSettings) panSettings.style.display = type === 'pan' ? 'flex' : 'none';
-        if (shapeSettings) shapeSettings.style.display = type === 'shape' ? 'block' : 'none';
+    const isDesktopToolbar = document.body.classList.contains('role-desktop-toolbar');
+    
+    // Pre-set content display to calculate correct width
+    toolSettingsPopup.dataset.type = type;
+    penSettings.style.display = type === 'pen' ? 'flex' : 'none';
+    eraserSettings.style.display = type === 'eraser' ? 'flex' : 'none';
+    if (panSettings) panSettings.style.display = type === 'pan' ? 'flex' : 'none';
+    if (shapeSettings) shapeSettings.style.display = type === 'shape' ? 'block' : 'none';
+    
+    if (isDesktopToolbar) {
+        // Desktop toolbar: position popup above toolbar, centered
+        // First show popup to get dimensions
+        toolSettingsPopup.style.visibility = 'hidden';
+        toolSettingsPopup.style.display = 'block';
+        const popupHeight = toolSettingsPopup.offsetHeight;
+        toolSettingsPopup.style.visibility = 'visible';
         
-        const rect = btn.getBoundingClientRect();
-        
-      // Standardize vertical positioning
-      const spaceAbove = rect.top;
-      const spaceBelow = window.innerHeight - rect.bottom;
-      
-      let bottomPos = window.innerHeight - rect.top + 12;
-      let topPos = 'auto';
-      
-      const threshold = 200; 
-      if (spaceAbove < threshold && spaceBelow > spaceAbove) {
-          bottomPos = 'auto';
-          topPos = `${rect.bottom + 12}px`;
-      }
-      
-      toolSettingsPopup.style.bottom = bottomPos === 'auto' ? 'auto' : `${bottomPos}px`;
-      toolSettingsPopup.style.top = topPos;
-      
-      if (type === 'shape') {
-            // Shape Menu special positioning (Above toolbar, full width or matching toolbar)
-            const tbRect = toolbar.getBoundingClientRect();
-            // Align with toolbar width but place above
-            toolSettingsPopup.style.width = 'auto'; // Auto width to fit content
-            toolSettingsPopup.style.minWidth = `${tbRect.width}px`; // At least toolbar width
-            const toolbarCenter = tbRect.left + tbRect.width / 2;
-            toolSettingsPopup.style.left = `${toolbarCenter}px`;
+        // Position above toolbar
+        const tb = document.getElementById('main-toolbar');
+        if (tb) {
+            const tbRect = tb.getBoundingClientRect();
+            toolSettingsPopup.style.position = 'fixed';
+            toolSettingsPopup.style.left = '50%';
+            toolSettingsPopup.style.transform = 'translateX(-50%)';
+            toolSettingsPopup.style.top = '10px';
+            toolSettingsPopup.style.bottom = 'auto';
+            toolSettingsPopup.style.width = 'auto';
+            toolSettingsPopup.style.maxWidth = 'calc(100vw - 20px)';
+        }
+    } else {
+        // Standard positioning for controls window
+        const btn = document.querySelector(`.tool-btn[data-id="${type}"]`);
+        if (btn) {
+            const rect = btn.getBoundingClientRect();
+            const spaceAbove = rect.top;
+            const spaceBelow = window.innerHeight - rect.bottom;
             
-            toolSettingsPopup.style.transform = 'translateX(-50%)'; // Center horizontally
-      } else {
-            toolSettingsPopup.style.width = ''; // Reset width
-            toolSettingsPopup.style.minWidth = ''; // Reset min-width
+            let bottomPos = window.innerHeight - rect.top + 12;
+            let topPos = 'auto';
             
-            // We can set display block first (visibility hidden) to get width?
-            toolSettingsPopup.style.visibility = 'hidden';
-            toolSettingsPopup.style.display = 'block';
-            const actualWidth = toolSettingsPopup.offsetWidth;
-            toolSettingsPopup.style.visibility = 'visible';
+            const threshold = 200; 
+            if (spaceAbove < threshold && spaceBelow > spaceAbove) {
+                bottomPos = 'auto';
+                topPos = `${rect.bottom + 12}px`;
+            }
             
-            const left = rect.left + rect.width / 2 - actualWidth / 2;
-            toolSettingsPopup.style.left = `${left}px`;
-            toolSettingsPopup.style.transform = 'none'; // Remove translateX(-50%)
-      }
+            toolSettingsPopup.style.bottom = bottomPos === 'auto' ? 'auto' : `${bottomPos}px`;
+            toolSettingsPopup.style.top = topPos;
+            
+            if (type === 'shape') {
+                  const tbRect = toolbar.getBoundingClientRect();
+                  toolSettingsPopup.style.width = 'auto';
+                  toolSettingsPopup.style.minWidth = `${tbRect.width}px`;
+                  const toolbarCenter = tbRect.left + tbRect.width / 2;
+                  toolSettingsPopup.style.left = `${toolbarCenter}px`;
+                  toolSettingsPopup.style.transform = 'translateX(-50%)';
+            } else {
+                  toolSettingsPopup.style.width = '';
+                  toolSettingsPopup.style.minWidth = '';
+                  
+                  toolSettingsPopup.style.visibility = 'hidden';
+                  toolSettingsPopup.style.display = 'block';
+                  const actualWidth = toolSettingsPopup.offsetWidth;
+                  toolSettingsPopup.style.visibility = 'visible';
+                  
+                  const left = rect.left + rect.width / 2 - actualWidth / 2;
+                  toolSettingsPopup.style.left = `${left}px`;
+                  toolSettingsPopup.style.transform = 'none';
+            }
+        }
     }
 
     toolSettingsPopup.style.display = 'block';
     toolSettingsPopup.dataset.type = type;
-    penSettings.style.display = type === 'pen' ? 'flex' : 'none';
+    penSettings.style.display = (type === 'pen' || type === 'shape') ? 'flex' : 'none';
     eraserSettings.style.display = type === 'eraser' ? 'flex' : 'none';
     if (panSettings) panSettings.style.display = type === 'pan' ? 'flex' : 'none';
     if (shapeSettings) shapeSettings.style.display = type === 'shape' ? 'block' : 'none';
@@ -988,6 +1225,39 @@ function toggleToolMenu(type) {
     if (type === 'pen') updateColorSelection();
     if (type === 'eraser') updateEraserSelection();
     if (type === 'shape') updateShapeSelection();
+
+    // Resize window and update shape if in desktop toolbar mode
+    if (isDesktopToolbar) {
+        requestAnimationFrame(() => {
+            const tb = document.getElementById('main-toolbar');
+            const popup = toolSettingsPopup;
+            
+            if (tb && popup) {
+                const tbRect = tb.getBoundingClientRect();
+                const popupRect = popup.getBoundingClientRect();
+                
+                // Calculate required window size based on actual content
+                const w = Math.ceil(popupRect.width + 20);
+                const h = Math.ceil(popupRect.height + tbRect.height + 40);
+                
+                ipcRenderer.send('resize-window', { width: w, height: h });
+                
+                // Update shape to include both toolbar and popup
+                setTimeout(() => {
+                    const padding = 10;
+                    const shapeRect = {
+                        x: padding,
+                        y: padding,
+                        width: Math.ceil(popupRect.width + padding),
+                        height: Math.ceil(popupRect.height + tbRect.height + padding * 2)
+                    };
+                    ipcRenderer.send('annotate-update-shape', [shapeRect]);
+                }, 50);
+            }
+        });
+    } else {
+        updateInteractiveShape();
+    }
   }
 }
 
@@ -2153,11 +2423,13 @@ function showModeToast(modeOrText, position, duration = 1500) {
     
     requestAnimationFrame(() => {
         toast.classList.add('visible');
+        updateInteractiveShape(); // Update shape for toast
     });
     
     if (state.toastTimeout) clearTimeout(state.toastTimeout);
     state.toastTimeout = setTimeout(() => {
         toast.classList.remove('visible');
+        updateInteractiveShape(); // Update shape after toast hides
     }, duration);
 }
 
@@ -2223,28 +2495,32 @@ function showContinueWhiteboardToast(onYes, onNo) {
       `;
       
       document.body.appendChild(toast);
+      updateInteractiveShape(); // Update shape for whiteboard toast
       
-      // Auto-hide after 5s and default to Yes (Transfer)
+      // Auto-hide after 5s and default to No (Cancel)
       const autoHideTimer = setTimeout(() => {
           if (document.body.contains(toast)) {
               toast.remove();
-              onYes();
+              if (onNo) onNo();
+              updateInteractiveShape(); // Update shape after toast removal
           }
       }, 5000);
       
       // Clear timer on interaction
-      toast.onpointerenter = () => clearTimeout(autoHideTimer);
+      // toast.onpointerenter = () => clearTimeout(autoHideTimer);
       
       document.getElementById('btn-wb-yes').onclick = () => {
           clearTimeout(autoHideTimer);
           toast.remove();
           onYes();
+          updateInteractiveShape(); // Update shape
       };
       
       document.getElementById('btn-wb-no').onclick = () => {
           clearTimeout(autoHideTimer);
           toast.remove();
           onNo();
+          updateInteractiveShape(); // Update shape
       };
   }
 
@@ -2257,12 +2533,337 @@ function checkEdgePan(point) {
     if (state.isPanning || state.isMovingSelection) return;
 }
 
+let moreConfig = null;
+
+async function loadConfig() {
+    try {
+        const res = await ipcRenderer.invoke('config:plugin:getAll', 'screen-annotate');
+        if (res) {
+            applyConfig(res);
+        } else {
+            // Defaults
+            moreConfig = [
+                // { label: '设置', icon: 'ri-settings-3-line', actionType: 'openSettings', actionPayload: {}, locked: true }, // Removed to avoid duplication
+                { label: '关闭', icon: 'ri-close-circle-line', actionType: 'close', actionPayload: {}, locked: true },
+                { label: '计时', icon: 'ri-timer-line', actionType: 'plugin', actionPayload: { pluginId: 'clock-timer', fn: 'openTimer' } }
+            ];
+        }
+    } catch (e) {
+        console.error('Failed to load config:', e);
+    }
+}
+
+function renderMorePopup() {
+    const grid = document.getElementById('more-tools-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    
+    if (!moreConfig) return;
+
+    moreConfig.forEach(btn => {
+        const el = document.createElement('button');
+        el.className = 'tool-btn small-col'; // New class for grid items
+        el.style.display = 'flex';
+        el.style.flexDirection = 'column';
+        el.style.alignItems = 'center';
+        el.style.justifyContent = 'center';
+        el.style.padding = '8px';
+        el.style.gap = '4px';
+        el.style.width = '100%';
+        el.style.minWidth = '0'; // Override tool-btn min-width
+        el.style.height = 'auto';
+        el.style.background = 'transparent';
+        el.style.border = 'none';
+        el.style.color = 'var(--fg)';
+        el.style.cursor = 'pointer';
+        el.style.borderRadius = '8px';
+        
+        // Hover effect handled by CSS usually
+        el.onmouseenter = () => el.style.background = 'rgba(255,255,255,0.1)';
+        el.onmouseleave = () => el.style.background = 'transparent';
+
+        let iconHtml = '';
+        const ic = btn.icon || '';
+        if (ic.startsWith('data:') || ic.startsWith('http') || ic.includes('/') || ic.includes('\\')) {
+            iconHtml = `<img src="${ic}" style="width:24px;height:24px;object-fit:contain;">`;
+        } else {
+            iconHtml = `<i class="${ic}" style="font-size:24px;"></i>`;
+        }
+        
+        el.innerHTML = `${iconHtml}<span style="font-size:10px; margin-top:4px;">${btn.label}</span>`;
+        
+        el.onclick = (e) => {
+            e.stopPropagation();
+            executeButtonAction(btn);
+            morePopup.style.display = 'none';
+            state.isMenuOpen = false;
+        };
+        
+        grid.appendChild(el);
+    });
+}
+
+function executeButtonAction(btn) {
+    const { actionType, actionPayload } = btn;
+    if (actionType === 'close') {
+        ipcRenderer.send('annotate-close');
+    } else if (actionType === 'openSettings') {
+        openSettingsView();
+    } else if (actionType === 'plugin') {
+        const { pluginId, fn, args } = actionPayload || {};
+        if (pluginId) {
+            if (fn) {
+                ipcRenderer.invoke('plugin:call', pluginId, fn, args || []).catch(console.error);
+            }
+        }
+    } else if (actionType === 'app') {
+        const path = actionPayload?.path || btn.path;
+        if (path) ipcRenderer.send('annotate-open-path', path);
+    } else if (actionType === 'key') {
+        const key = actionPayload?.key;
+        // Key simulation requires main process support or robotjs
+    }
+}
+
+function openSettingsView() {
+    const layer = document.getElementById('settings-layer');
+    const webview = document.getElementById('settings-webview');
+    if (layer && webview) {
+        layer.style.display = 'flex';
+        
+        // Force reload to ensure fresh state and fix loading issues
+        const settingsPath = 'settings.html';
+        const currentSrc = webview.src || webview.getAttribute('src') || '';
+        if (currentSrc.indexOf(settingsPath) === -1) {
+             webview.src = settingsPath;
+        } else {
+             // Force reload by resetting src
+             webview.src = 'about:blank';
+             setTimeout(() => {
+                 webview.src = settingsPath;
+             }, 50);
+        }
+        
+        // Listen for close message
+        const messageHandler = (event) => {
+            if (event.channel === 'close-settings') {
+                layer.style.display = 'none';
+                
+                // Fix for Issue 5: Always restore mouse passthrough state
+                // Use a small timeout to allow state to settle
+                setTimeout(() => {
+                    // Force update to restore correct state (e.g. pen mode should not ignore mouse)
+                    // We need to access updateMousePassthrough from renderer scope? 
+                    // No, we can't. But we can send IPC to main to reset?
+                    // Or better, we can invoke a global function if exposed.
+                    // Or just handle it here if we can import logic.
+                    // updateMousePassthrough is in renderer.js, not exported.
+                    // But wait, openSettingsView is in ui.js.
+                    // ui.js is required by renderer.js.
+                    // We can export updateMousePassthrough from renderer? No, circular dependency.
+                    // We can emit an event on ipcRenderer that renderer listens to?
+                    // Or just use the existing logic in renderer.js which listens to 'annotate-open-settings-view'?
+                    // No, that opens it.
+                    
+                    // Let's send a custom event that renderer listens to?
+                    ipcRenderer.emit('settings-closed-internal');
+                }, 50);
+
+                // Reload config after close just in case
+                ipcRenderer.invoke('annotate-get-config').then(applyConfig);
+            } else if (event.channel === 'settings-saved') {
+                // Apply config immediately
+                applyConfig(event.args[0]);
+            }
+        };
+        
+        // Remove old listener to avoid duplicates
+        webview.removeEventListener('ipc-message', webview._messageHandler);
+        webview._messageHandler = messageHandler;
+        webview.addEventListener('ipc-message', messageHandler);
+        
+        // Force pointer events on layer
+        ipcRenderer.send('annotate-set-ignore-mouse-events', false);
+    }
+}
+
+async function applyConfig(config) {
+    if (!config) return;
+    
+    // Toolbar
+    if (config.toolbar) {
+        state.toolbarConfig = config.toolbar;
+        if (currentToolbarCallback) {
+            renderToolbar(currentToolbarCallback);
+        }
+    }
+    
+    // More Buttons
+    if (config.buttons) {
+        moreConfig = config.buttons;
+        const morePopup = document.getElementById('more-popup');
+        if (morePopup && morePopup.style.display !== 'none') {
+            renderMorePopup();
+        }
+    }
+    
+    // Writing Preferences
+    if (config.writingPreferences) {
+        const wp = config.writingPreferences;
+        if (wp.penColor) {
+            state.penColor = wp.penColor;
+            updateColorSelection();
+        }
+        if (wp.penSize) {
+            state.penSize = parseInt(wp.penSize);
+            const slider = document.getElementById('pen-size-slider');
+            const display = document.getElementById('pen-size-display');
+            if (slider) slider.value = state.penSize;
+            if (display) display.textContent = state.penSize;
+        }
+        if (wp.penTaper !== undefined) {
+            state.penTaper = wp.penTaper;
+            const toggle = document.getElementById('pen-taper-toggle');
+            if (toggle) toggle.checked = state.penTaper;
+        }
+        if (wp.eraserSize) {
+            state.eraserSize = parseInt(wp.eraserSize);
+            updateEraserSelection();
+        }
+    }
+    
+    // Whiteboard Settings
+    if (config.whiteboard) {
+        state.whiteboardSettings = config.whiteboard;
+        // Apply logic if needed (e.g. toggle pan assist)
+    }
+    
+    // Auto Save
+    if (config.autoSave) {
+        state.autoSave = config.autoSave;
+    }
+}
+
+// Listen for main process command to open settings
+ipcRenderer.on('annotate-open-settings-view', () => {
+    openSettingsView();
+});
+
+async function toggleMorePopup() {
+    const isDesktopToolbar = document.body.classList.contains('role-desktop-toolbar');
+    
+    if (state.isMenuOpen && morePopup.style.display !== 'none') {
+        morePopup.style.display = 'none';
+        state.isMenuOpen = false;
+        
+        // Resize window back if in desktop toolbar mode
+        if (isDesktopToolbar) {
+            const tb = document.getElementById('main-toolbar');
+            if (tb) {
+                const rect = tb.getBoundingClientRect();
+                ipcRenderer.send('resize-window', { width: Math.ceil(rect.width + 20), height: Math.ceil(rect.height + 20) });
+                setTimeout(() => {
+                    const padding = 10;
+                    const shapeRect = {
+                        x: padding,
+                        y: padding,
+                        width: Math.ceil(rect.width + padding),
+                        height: Math.ceil(rect.height + padding)
+                    };
+                    ipcRenderer.send('annotate-update-shape', [shapeRect]);
+                }, 50);
+            }
+        }
+    } else {
+        // Close other popups
+        toolSettingsPopup.style.display = 'none';
+        if (shapeStatusPopup) shapeStatusPopup.style.display = 'none';
+        
+        if (!moreConfig) await loadMoreConfig();
+        renderMorePopup();
+        
+        // Position popup for desktop toolbar
+        if (isDesktopToolbar) {
+            morePopup.style.position = 'fixed';
+            morePopup.style.left = '50%';
+            morePopup.style.transform = 'translateX(-50%)';
+            morePopup.style.top = '10px';
+            morePopup.style.bottom = 'auto';
+        }
+        
+        morePopup.style.display = 'block';
+        state.isMenuOpen = true;
+        
+        // Resize window if in desktop toolbar mode
+        if (isDesktopToolbar) {
+            requestAnimationFrame(() => {
+                const tb = document.getElementById('main-toolbar');
+                const popup = morePopup;
+                
+                if (tb && popup) {
+                    const tbRect = tb.getBoundingClientRect();
+                    const popupRect = popup.getBoundingClientRect();
+                    
+                    const w = Math.ceil(popupRect.width + 20);
+                    const h = Math.ceil(popupRect.height + tbRect.height + 40);
+                    
+                    ipcRenderer.send('resize-window', { width: w, height: h });
+                    
+                    setTimeout(() => {
+                        const padding = 10;
+                        const shapeRect = {
+                            x: padding,
+                            y: padding,
+                            width: Math.ceil(popupRect.width + padding),
+                            height: Math.ceil(popupRect.height + tbRect.height + padding * 2)
+                        };
+                        ipcRenderer.send('annotate-update-shape', [shapeRect]);
+                    }, 50);
+                }
+            });
+        } else {
+            updatePopupPositions();
+        }
+        
+        // Fix: Allow mouse interaction in annotate mode
+        if (state.MODE === 'annotate') {
+            ipcRenderer.send('annotate-set-ignore-mouse-events', false);
+        }
+    }
+    updateInteractiveShape();
+}
+
+// Fix: Add mouse listeners to morePopup to handle transparency
+const morePopupEl = document.getElementById('more-popup');
+// User requested to remove mouseenter/leave/move for transparency
+
+// Edit button inside popup
+const moreEditBtn = document.getElementById('btn-more-edit');
+if (moreEditBtn) {
+    moreEditBtn.onclick = () => {
+        openSettingsView();
+        morePopup.style.display = 'none';
+        state.isMenuOpen = false;
+    };
+}
+
+// Listen for config changes
+ipcRenderer.on('screen-annotate:config-changed', (e, newConfig) => {
+    if (newConfig && newConfig.buttons) {
+        moreConfig = newConfig.buttons;
+        if (morePopup && morePopup.style.display !== 'none') {
+            renderMorePopup();
+        }
+    }
+});
+
 module.exports = {
     showModeToast,
     showContinueWhiteboardToast,
     showChoiceModal,
     renderToolbar,
     toggleToolMenu,
+    toggleMorePopup,
     updateColorSelection,
     updateEraserSelection,
     showModal,
@@ -2282,7 +2883,8 @@ module.exports = {
     adjustPopup,
     showSavePopup,
     initScreenshotUI,
-    enableVideoBooth // Export
+    enableVideoBooth,
+    applyConfig // Export
 };
 
 function initScreenshotUI(callbacks) {
@@ -2305,6 +2907,7 @@ function initScreenshotUI(callbacks) {
         minibar.style.bottom = 'auto'; 
         minibar.style.left = `${rect.left}px`;
         minibar.style.top = `${rect.top}px`;
+        updateInteractiveShape(true); // Fullscreen for screenshot minibar drag
     };
     
     handle.onpointermove = (e) => {
@@ -2324,12 +2927,16 @@ function initScreenshotUI(callbacks) {
         if (!isDragging) return;
         isDragging = false;
         handle.releasePointerCapture(e.pointerId);
+        updateInteractiveShape(false); // Restore shape
     };
     
     // Buttons
     document.getElementById('btn-shot-full').onclick = callbacks.onScreenshotFull;
     document.getElementById('btn-shot-confirm').onclick = callbacks.onScreenshotConfirm;
     document.getElementById('btn-shot-reselect').onclick = callbacks.onScreenshotReselect;
+    if (callbacks.onScreenshotCancel) {
+        document.getElementById('btn-shot-cancel').onclick = callbacks.onScreenshotCancel;
+    }
 }
 
 function showSavePopup(options = {}) {
@@ -2416,12 +3023,27 @@ function showSavePopup(options = {}) {
     
     savePopup.innerHTML = html;
     document.body.appendChild(savePopup);
+    makeInteractive(savePopup); // Add interaction logic
+    updateInteractiveShape(); // Update shape for save popup
+
+    // Fix for Issue 1: Prevent click-through in Desktop Annotation Mode
+    // Already handled by makeInteractive?
+    // makeInteractive handles mouseenter/mouseleave.
+    // But specific logic was added before.
+    // Let's remove duplicate listeners if any, or rely on makeInteractive.
+    // The previous implementation was:
+    /*
+    savePopup.addEventListener('mouseenter', () => { ... });
+    savePopup.addEventListener('mouseleave', () => { ... });
+    */
+    // makeInteractive does exactly this.
     
     // Positioning logic (reused)
     // Try to position near the source button if provided via event or context?
     // Or just default to bottom left or center?
     // Let's use the standard positioning logic if 'save' button exists.
-    const saveBtn = document.querySelector('.tool-btn[data-id="save"]');
+    // Fix for Issue 2: Support Whiteboard Save Button
+    const saveBtn = document.querySelector('.tool-btn[data-id="save"]') || document.getElementById('btn-save-wb');
     if (saveBtn) {
         const rect = saveBtn.getBoundingClientRect();
         savePopup.style.left = `${rect.left}px`;
@@ -2472,6 +3094,7 @@ function showSavePopup(options = {}) {
     
     savePopup.querySelector('#btn-cancel-save').onclick = () => {
         savePopup.remove();
+        updateInteractiveShape(); // Update shape after closing save popup
     };
     
     savePopup.querySelector('#btn-confirm-save').onclick = () => {
@@ -2495,9 +3118,18 @@ function showSavePopup(options = {}) {
             // Default Save Logic
             let dataUrl;
             if (scope === 'single') {
-                dataUrl = canvasModule.canvas.toDataURL('image/png');
+                dataUrl = canvasModule.captureCanvas({
+                    area: area,
+                    includeBackground: true,
+                    includeInk: includeInk
+                });
             } else {
-                 dataUrl = canvasModule.canvas.toDataURL('image/png');
+                 // TODO: Handle 'all' pages
+                 dataUrl = canvasModule.captureCanvas({
+                    area: area,
+                    includeBackground: true,
+                    includeInk: includeInk
+                });
             }
 
             savePopup.remove();
@@ -2565,7 +3197,8 @@ function updatePopupPositions() {
     // Sync Save Popup
     const savePopup = document.getElementById('save-popup');
     if (savePopup) {
-         const btn = document.querySelector(`.tool-btn[data-id="save"]`);
+         // Fix for Issue 2: Support Whiteboard Save Button
+         const btn = document.querySelector(`.tool-btn[data-id="save"]`) || document.getElementById('btn-save-wb');
          if (btn) {
              const rect = btn.getBoundingClientRect();
              savePopup.style.left = `${rect.left}px`;
@@ -2608,4 +3241,30 @@ function updatePopupPositions() {
       shapeStatusPopup.style.bottom = bottomPos === 'auto' ? 'auto' : `${bottomPos}px`;
       shapeStatusPopup.style.top = topPos;
     }
+
+    // Sync More Popup
+    if (state.isMenuOpen && morePopup.style.display !== 'none') {
+        const btn = document.querySelector('.tool-btn[data-id="more"]');
+        if (btn) {
+            const rect = btn.getBoundingClientRect();
+            const spaceAbove = rect.top;
+            const spaceBelow = window.innerHeight - rect.bottom;
+            
+            let bottomPos = window.innerHeight - rect.top + 12;
+            let topPos = 'auto';
+            const threshold = 200; 
+            if (spaceAbove < threshold && spaceBelow > spaceAbove) {
+                bottomPos = 'auto';
+                topPos = `${rect.bottom + 12}px`;
+            }
+            
+            morePopup.style.bottom = bottomPos === 'auto' ? 'auto' : `${bottomPos}px`;
+            morePopup.style.top = topPos;
+            
+            const actualWidth = morePopup.offsetWidth;
+            const left = rect.left + rect.width / 2 - actualWidth / 2;
+            morePopup.style.left = `${left}px`;
+        }
+    }
+    updateInteractiveShape(); // Update shape after positioning popups
 }

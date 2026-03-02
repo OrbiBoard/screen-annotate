@@ -21,6 +21,18 @@
       "icon": "ri-artboard-line",
       "text": "白板",
       "target": "openWhiteboard"
+    },
+    {
+      "id": "openBoardCenter",
+      "icon": "ri-folder-open-line",
+      "text": "板书中心",
+      "target": "openBoardCenter"
+    },
+    {
+      "id": "openSettings",
+      "icon": "ri-settings-3-line",
+      "text": "批注设置",
+      "target": "openSettings"
     }
   ]
 }

@@ -991,7 +991,9 @@ body {
 }
 
 #volume-slider {
-  -webkit-appearance: slider-vertical;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  appearance: auto;
   width: 4px;
   height: 100%;
   background: transparent;
@@ -1015,6 +1017,31 @@ body {
   flex: 1;
   width: 100%;
   height: 100%;
+}
+
+/* Settings Layer */
+.settings-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 2000; /* Above everything */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+}
+
+.settings-window {
+    width: 800px;
+    height: 600px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 
 .fullscreen-exit-btn {
@@ -1454,13 +1481,13 @@ input:checked + .slider:before {
 }
 
 .gallery-grid {
-  display: grid;
-  grid-template-columns: 1fr; /* Single column */
+  display: flex;
+  flex-direction: column; /* Standard column, we will reverse array in JS */
+  justify-content: flex-end; /* Anchor to bottom */
   gap: 12px;
   overflow-y: auto;
   padding: 4px;
   flex: 1;
-  /* Scroll to bottom initially? */
 }
 
 .gallery-item {
@@ -1507,4 +1534,45 @@ input:checked + .slider:before {
 
 .gallery-item.selected .gallery-item-check {
   opacity: 1;
+}
+
+/* Screenshot UI */
+#screenshot-mask {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9990;
+    cursor: crosshair;
+    background: rgba(0, 0, 0, 0.01); /* Slight fill to ensure event capture */
+}
+
+#screenshot-minibar {
+    position: fixed;
+    z-index: 9999;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    /* Default position centered bottom? JS handles it */
+}
+
+.minibar-drag-handle {
+    display: flex;
+    justify-content: center;
+    cursor: grab;
+    color: var(--muted);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+}
+
+.minibar-content {
+    display: flex;
+    gap: 8px;
 }

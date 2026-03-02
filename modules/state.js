@@ -23,7 +23,9 @@ const state = {
         strokes: [],
         camera: { x: 0, y: 0, z: 1 },
         history: [],
-        historyIndex: -1
+        historyIndex: -1,
+        videoOrigin: { x: 0, y: 0 }, // Tracks background origin in World Space
+        bgRotation: 0 // Tracks background rotation
     },
 
     // --- Shared/Transient State ---

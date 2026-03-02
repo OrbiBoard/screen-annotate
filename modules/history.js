@@ -3,6 +3,7 @@ const canvasModule = require('./canvas');
 const objects = require('./objects');
 const selection = require('./selection');
 const booth = require('./booth');
+const cunox = require('./cunox');
 
 function getHistoryState() {
     return state.getActiveHistory();
@@ -23,6 +24,8 @@ function pushAction(action) {
         historyState.history.shift();
         historyState.historyIndex--;
     }
+    
+    cunox.triggerAutoSave();
 }
 
 function undo() {
@@ -33,6 +36,7 @@ function undo() {
     historyState.historyIndex--;
     
     applyAction(action, true);
+    cunox.triggerAutoSave();
 }
 
 function redo() {
@@ -43,6 +47,7 @@ function redo() {
     const action = historyState.history[historyState.historyIndex];
     
     applyAction(action, false);
+    cunox.triggerAutoSave();
 }
 
 function applyAction(action, isUndo) {

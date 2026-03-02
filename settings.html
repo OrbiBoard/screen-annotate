@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>批注插件设置</title>
+  <link rel="stylesheet" href="../renderer/remixicon-local.css">
+  <style>
+    :root {
+      --bg-color: #080808;
+      --panel-bg: #121212;
+      --text-color: #e0e0e0;
+      --text-muted: #888;
+      --accent-color: #2d2d2d;
+      --border-color: #333;
+      --input-bg: #1a1a1a;
+      --hover-bg: #252525;
+      --primary-btn: #0066cc;
+    }
+    body {
+      margin: 0; padding: 0;
+      background: var(--bg-color);
+      color: var(--text-color);
+      font-family: "Microsoft YaHei", sans-serif;
+      display: flex; flex-direction: column;
+      height: 100vh; overflow: hidden;
+    }
+    .header {
+      padding: 12px 16px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--border-color);
+      font-weight: bold;
+      display: flex; justify-content: space-between; align-items: center;
+      -webkit-app-region: drag;
+    }
+    .header span { font-size: 14px; }
+    
+    .container {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+    
+    .sidebar {
+        width: 160px;
+        background: var(--panel-bg);
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        padding-top: 10px;
+    }
+    
+    .sidebar-item {
+        padding: 10px 16px;
+        cursor: pointer;
+        color: var(--text-muted);
+        border-left: 3px solid transparent;
+        font-size: 13px;
+        transition: all 0.2s;
+    }
+    
+    .sidebar-item:hover {
+        background: var(--hover-bg);
+        color: var(--text-color);
+    }
+    
+    .sidebar-item.active {
+        background: var(--input-bg);
+        color: var(--text-color);
+        border-left-color: var(--primary-btn);
+    }
+    
+    .main-content {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        background: var(--bg-color);
+    }
+    
+    .tab-pane {
+        display: none;
+    }
+    .tab-pane.active {
+        display: block;
+    }
+    
+    .section-title {
+        font-size: 16px;
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-color);
+    }
+    
+    .form-group {
+        margin-bottom: 16px;
+    }
+    
+    .form-group label {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--text-muted);
+        font-size: 12px;
+    }
+    
+    input[type="text"], input[type="number"], select, textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
+        color: white;
+        border-radius: 4px;
+        outline: none;
+    }
+    
+    input:focus, select:focus, textarea:focus {
+        border-color: var(--primary-btn);
+    }
+    
+    .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .btn {
+        padding: 6px 16px;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        cursor: pointer;
+        font-size: 13px;
+        background: var(--accent-color);
+        color: white;
+        transition: background 0.2s;
+    }
+    .btn:hover { background: var(--hover-bg); }
+    .btn-primary { background: var(--primary-btn); border-color: var(--primary-btn); }
+    .btn-primary:hover { background: #005bb5; }
+    
+    .btn-icon {
+        background: none; border: none; color: var(--text-muted);
+        cursor: pointer; padding: 4px; font-size: 16px; border-radius: 4px;
+    }
+    .btn-icon:hover { color: white; background: var(--hover-bg); }
+    
+    /* Toggle Switch */
+    .switch {
+      position: relative; display: inline-block; width: 36px; height: 20px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--input-bg);
+      border: 1px solid var(--border-color);
+      transition: .4s; border-radius: 20px;
+    }
+    .slider:before {
+      position: absolute; content: "";
+      height: 14px; width: 14px;
+      left: 2px; bottom: 2px;
+      background-color: var(--text-muted);
+      transition: .4s; border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--primary-btn); border-color: var(--primary-btn); }
+    input:checked + .slider:before { transform: translateX(16px); background-color: white; }
+
+    /* More Menu List */
+    .list-item {
+        background: var(--input-bg);
+        padding: 8px 12px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid transparent;
+        margin-bottom: 8px;
+    }
+    .list-item:hover { border-color: var(--border-color); }
+    .list-item i { font-size: 20px; color: var(--text-muted); }
+    .list-item .info { flex: 1; }
+    .list-item .label { font-size: 14px; }
+    .list-item .sub { font-size: 11px; color: var(--text-muted); }
+    
+    .footer {
+        padding: 12px 20px;
+        background: var(--panel-bg);
+        border-top: 1px solid var(--border-color);
+        display: flex; justify-content: flex-end; gap: 12px;
+    }
+    
+    /* Modal */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center; z-index: 100;
+    }
+    .modal {
+      background: var(--panel-bg); width: 400px; padding: 20px;
+      border-radius: 8px; border: 1px solid var(--border-color);
+      display: flex; flex-direction: column; gap: 12px;
+      max-height: 90vh; overflow-y: auto;
+    }
+    
+    /* Icon Grid */
+    .icon-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+        gap: 8px; max-height: 300px; overflow-y: auto;
+    }
+    .icon-cell {
+        display: flex; flex-direction: column; align-items: center;
+        padding: 8px; background: var(--input-bg); border-radius: 4px; cursor: pointer;
+    }
+    .icon-cell:hover { background: var(--hover-bg); }
+    .icon-cell i { font-size: 20px; margin-bottom: 4px; }
+    
+    /* About */
+    .about-info { text-align: center; padding: 20px; color: var(--text-muted); }
+    .about-info h3 { color: var(--text-color); margin-bottom: 8px; }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.4);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+      <span>批注插件设置</span>
+      <button class="btn-icon" style="-webkit-app-region: no-drag;" onclick="closeSettings()"><i class="ri-close-line"></i></button>
+  </div>
+  
+  <div class="container">
+      <div class="sidebar">
+          <div class="sidebar-item active" onclick="switchTab('tab-toolbar')"><i class="ri-tools-line"></i> 主工具栏</div>
+          <div class="sidebar-item" onclick="switchTab('tab-more')"><i class="ri-apps-2-line"></i> 更多菜单</div>
+          <div class="sidebar-item" onclick="switchTab('tab-writing')"><i class="ri-pencil-line"></i> 书写偏好</div>
+          <div class="sidebar-item" onclick="switchTab('tab-whiteboard')"><i class="ri-artboard-line"></i> 白板设置</div>
+          <div class="sidebar-item" onclick="switchTab('tab-autosave')"><i class="ri-save-line"></i> 自动保存</div>
+          <div class="sidebar-item" onclick="switchTab('tab-plugins')"><i class="ri-plug-line"></i> 插件联动</div>
+          <div class="sidebar-item" onclick="switchTab('tab-about')"><i class="ri-information-line"></i> 关于插件</div>
+      </div>
+      
+      <div class="main-content">
+          <!-- Main Toolbar Tab -->
+          <div id="tab-toolbar" class="tab-pane active">
+              <div class="section-title">主工具栏配置</div>
+              
+              <div class="form-group">
+                  <label>选择编辑模式</label>
+                  <select id="toolbar-mode-select" onchange="switchToolbarMode(this.value)">
+                    <option value="annotate">桌面批注 (Desktop)</option>
+                    <option value="whiteboard">白板批注 (Whiteboard)</option>
+                    <option value="booth">展台批注 (Booth)</option>
+                  </select>
+              </div>
+              
+              <div class="form-group">
+                    <label>通用设置</label>
+                    <div class="list-item">
+                        <i class="ri-drag-move-2-fill"></i>
+                        <div class="info">
+                            <div class="label">拖拽手柄</div>
+                            <div class="sub">显示/隐藏拖拽手柄 (位置固定)</div>
+                        </div>
+                        <div class="actions">
+                            <label class="switch">
+                                <input type="checkbox" id="chk-drag-handle" onchange="updateDragHandle(this.checked)">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                    </div>
+              </div>
+              
+              <div class="section-title" style="margin-top: 20px;">工具列表</div>
+              <div id="toolbar-list"></div>
+          </div>
+          
+          <!-- More Menu Tab -->
+          <div id="tab-more" class="tab-pane">
+              <div class="section-title" style="display: flex; justify-content: space-between;">
+                  <span>更多菜单按钮</span>
+                  <button class="btn-icon" onclick="editItem(-1)"><i class="ri-add-line"></i></button>
+              </div>
+              <div id="list-buttons"></div>
+          </div>
+          
+          <!-- Writing Prefs Tab -->
+          <div id="tab-writing" class="tab-pane">
+              <div class="section-title">书写偏好</div>
+              <div class="form-group">
+                  <label>默认笔迹颜色</label>
+                  <div class="row">
+                      <input type="color" id="wp-color" value="#ff4d4f" style="width: 40px; height: 30px; padding: 0; border: none;">
+                      <span id="wp-color-val" style="font-size: 12px; color: var(--text-muted);">#ff4d4f</span>
+                  </div>
+              </div>
+              <div class="form-group">
+                  <label>默认笔迹粗细: <span id="wp-size-val">6</span></label>
+                  <input type="range" id="wp-size" min="1" max="50" value="6" oninput="document.getElementById('wp-size-val').innerText = this.value">
+              </div>
+              <div class="form-group">
+                  <label>开启笔锋</label>
+                  <label class="switch">
+                      <input type="checkbox" id="wp-taper">
+                      <span class="slider round"></span>
+                  </label>
+              </div>
+              <div class="form-group">
+                  <label>默认橡皮大小</label>
+                  <select id="wp-eraser">
+                      <option value="50">小 (50)</option>
+                      <option value="100">中 (100)</option>
+                      <option value="200">大 (200)</option>
+                  </select>
+              </div>
+          </div>
+          
+          <!-- Whiteboard Tab -->
+          <div id="tab-whiteboard" class="tab-pane">
+              <div class="section-title">白板设置</div>
+              <div class="form-group">
+                  <label>漫游辅助移动 (边缘自动漫游)</label>
+                  <label class="switch">
+                      <input type="checkbox" id="wb-pan-assist">
+                      <span class="slider round"></span>
+                  </label>
+              </div>
+              <div class="form-group">
+                  <label>笔迹流转提示开关</label>
+                  <label class="switch">
+                      <input type="checkbox" id="wb-flow-hint">
+                      <span class="slider round"></span>
+                  </label>
+              </div>
+              <div class="form-group">
+                  <label>笔迹流转提示显示时长 (毫秒)</label>
+                  <input type="number" id="wb-flow-duration" value="3000">
+              </div>
+          </div>
+          
+          <!-- Auto Save Tab -->
+          <div id="tab-autosave" class="tab-pane">
+              <div class="section-title">自动保存</div>
+              <div class="form-group">
+                  <label>退出时自动保存</label>
+                  <label class="switch">
+                      <input type="checkbox" id="as-enabled">
+                      <span class="slider round"></span>
+                  </label>
+              </div>
+              <div class="form-group">
+                  <label>保存目录</label>
+                  <div class="row">
+                      <input type="text" id="as-path" readonly placeholder="选择目录...">
+                      <button class="btn" onclick="selectSavePath()">浏览</button>
+                  </div>
+              </div>
+          </div>
+          
+          <!-- Plugins Tab -->
+          <div id="tab-plugins" class="tab-pane">
+              <div class="section-title">插件联动</div>
+              <div style="color: var(--text-muted); font-size: 13px;">
+                  以下插件已注册为屏幕批注的客户端或扩展：
+              </div>
+              <div id="plugin-list" style="margin-top: 10px;">
+                  <!-- Dynamic list -->
+              </div>
+          </div>
+          
+          <!-- About Tab -->
+          <div id="tab-about" class="tab-pane">
+              <div class="about-info">
+                  <img src="icon.png" style="width: 64px; height: 64px; margin-bottom: 10px;" onerror="this.style.display='none'">
+                  <h3>屏幕批注 (Screen Annotate)</h3>
+                  <p>版本: 1.0.1</p>
+                  <p>OrbiBoard 官方批注工具插件</p>
+              </div>
+          </div>
+      </div>
+  </div>
+  
+  <div class="footer">
+      <button class="btn" onclick="closeSettings()">取消</button>
+      <button class="btn btn-primary" id="btn-save">保存并应用</button>
+  </div>
+
+  <!-- Edit Modal -->
+  <div class="modal-overlay" id="edit-modal">
+    <div class="modal">
+      <h3 style="margin:0;font-size:16px;" id="modal-title">编辑按钮</h3>
+      <div class="form-group">
+        <label>名称</label>
+        <input type="text" id="inp-label" placeholder="显示名称">
+      </div>
+      <div class="form-group">
+        <label>图标</label>
+        <div class="row">
+            <input type="text" id="inp-icon" placeholder="ri-xx-line">
+            <button class="btn" onclick="openIconPicker()"><i class="ri-search-line"></i></button>
+        </div>
+      </div>
+      <div class="form-group">
+          <label>动作类型</label>
+          <select id="inp-action-type" onchange="renderPayloadFields(this.value, {})">
+            <option value="plugin">插件调用 (Plugin)</option>
+            <option value="app">打开应用 (App)</option>
+            <option value="key">模拟按键 (Key)</option>
+            <option value="openSettings">打开编辑 (Settings)</option>
+            <option value="close">关闭批注 (Close)</option>
+          </select>
+      </div>
+      <div id="payload-container"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+        <button class="btn" onclick="closeModal('edit-modal')">取消</button>
+        <button class="btn btn-primary" onclick="confirmEdit()">确定</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Icon Picker Modal -->
+  <div class="modal-overlay" id="icon-modal">
+      <div class="modal" style="width: 600px;">
+          <div class="header" style="padding:0;border:none;background:none;margin-bottom:12px;">
+              <span>选择图标</span>
+              <button class="btn-icon" onclick="closeModal('icon-modal')"><i class="ri-close-line"></i></button>
+          </div>
+          <input type="text" id="icon-search" placeholder="搜索图标..." oninput="filterIcons(this.value)" style="margin-bottom:8px;">
+          <div class="icon-grid" id="icon-grid"></div>
+      </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const PLUGIN_ID = 'screen-annotate';
+    
+    let config = { 
+        buttons: [],
+        writingPreferences: {},
+        whiteboard: {},
+        autoSave: {}
+    };
+    let editingIndex = -1;
+    let cachedPlugins = [];
+    
+    // Icons
+    const COMMON_ICONS = [
+        'ri-apps-2-line', 'ri-home-line', 'ri-settings-3-line', 'ri-search-line',
+        'ri-star-line', 'ri-heart-line', 'ri-user-line', 'ri-file-line',
+        'ri-folder-line', 'ri-image-line', 'ri-music-line', 'ri-video-line',
+        'ri-camera-line', 'ri-download-line', 'ri-upload-line', 'ri-share-line',
+        'ri-delete-bin-line', 'ri-lock-line', 'ri-shield-line', 'ri-key-line',
+        'ri-timer-line', 'ri-alarm-line', 'ri-calendar-line', 'ri-map-pin-line',
+        'ri-compass-3-line', 'ri-flight-takeoff-line', 'ri-car-line', 'ri-bus-line',
+        'ri-mail-line', 'ri-chat-1-line', 'ri-phone-line', 'ri-wifi-line',
+        'ri-battery-charge-line', 'ri-cpu-line', 'ri-database-2-line', 'ri-code-line',
+        'ri-terminal-line', 'ri-bug-line', 'ri-git-branch-line', 'ri-chrome-line',
+        'ri-edge-line', 'ri-firefox-line', 'ri-ie-line', 'ri-safari-line',
+        'ri-windows-line', 'ri-apple-line', 'ri-android-line', 'ri-ubuntu-line',
+        'ri-close-circle-line', 'ri-close-line'
+    ];
+    
+    // Tools Definition (Sync with ui.js)
+    const TOOLS_DEF = {
+      annotate: [
+        { id: 'mouse', icon: 'ri-cursor-line', label: '鼠标' },
+        { id: 'pen', icon: 'ri-pencil-fill', label: '批注' },
+        { id: 'eraser', icon: 'ri-eraser-line', label: '橡皮' },
+        { id: 'clear', icon: 'ri-delete-bin-line', label: '清页' },
+        { id: 'select', icon: 'ri-cursor-fill', label: '套索选' },
+        { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
+        { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' },
+        { id: 'whiteboard', icon: 'ri-artboard-line', label: '白板' },
+        { id: 'save', icon: 'ri-save-line', label: '保存' },
+        { id: 'booth', icon: 'ri-vidicon-line', label: '展台' }, // Optional
+        { id: 'more', icon: 'ri-apps-2-line', label: '更多', locked: true }
+      ],
+      whiteboard: [
+        { id: 'select', icon: 'ri-cursor-fill', label: '选择' },
+        { id: 'pen', icon: 'ri-pencil-fill', label: '书写' },
+        { id: 'eraser', icon: 'ri-eraser-line', label: '橡皮' },
+        { id: 'pan', icon: 'ri-drag-move-line', label: '漫游' },
+        { id: 'shape', icon: 'ri-shape-line', label: '形状' },
+        { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
+        { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' },
+        { id: 'more', icon: 'ri-apps-2-line', label: '更多', locked: true }
+      ],
+      booth: [
+        { id: 'pan', icon: 'ri-drag-move-line', label: '漫游' },
+        { id: 'pen', icon: 'ri-pencil-fill', label: '批注' },
+        { id: 'eraser', icon: 'ri-eraser-line', label: '橡皮' },
+        { id: 'lasso', icon: 'ri-focus-3-line', label: '套索' },
+        { id: 'rotate', icon: 'ri-refresh-line', label: '旋转' },
+        { id: 'undo', icon: 'ri-arrow-go-back-line', label: '撤销' },
+        { id: 'redo', icon: 'ri-arrow-go-forward-line', label: '还原' },
+        { id: 'more', icon: 'ri-apps-2-line', label: '更多', locked: true }
+      ]
+    };
+    
+    let currentToolbarMode = 'annotate';
+    
+    function initToolbarConfig() {
+        if (!config.toolbar) {
+            config.toolbar = JSON.parse(JSON.stringify(TOOLS_DEF));
+            // Set default visible
+            Object.keys(config.toolbar).forEach(mode => {
+                if(Array.isArray(config.toolbar[mode])) {
+                    config.toolbar[mode].forEach(t => t.visible = true);
+                }
+            });
+            config.toolbar.showDragHandle = true;
+        }
+    }
+
+    function renderToolbarSettings() {
+        if (!config.toolbar) initToolbarConfig();
+        
+        document.getElementById('chk-drag-handle').checked = config.toolbar.showDragHandle !== false;
+        
+        const mode = document.getElementById('toolbar-mode-select').value;
+        const list = document.getElementById('toolbar-list');
+        list.innerHTML = '';
+        
+        const tools = config.toolbar[mode] || [];
+        
+        tools.forEach((tool, idx) => {
+            const div = document.createElement('div');
+            div.className = 'list-item';
+            
+            const isVisible = tool.visible !== false;
+            // Locked: 'more' cannot be hidden.
+            const isLocked = tool.locked || tool.id === 'more';
+            
+            div.innerHTML = `
+                <i class="${tool.icon}"></i>
+                <div class="info">
+                    <div class="label">${tool.label} ${isLocked ? '(锁定)' : ''}</div>
+                    <div class="sub">${tool.id}</div>
+                </div>
+                <div class="actions">
+                    <button class="btn-icon" onclick="moveTool('${mode}', ${idx}, -1)" ${idx===0?'disabled':''}><i class="ri-arrow-up-line"></i></button>
+                    <button class="btn-icon" onclick="moveTool('${mode}', ${idx}, 1)" ${idx===(tools.length-1)?'disabled':''}><i class="ri-arrow-down-line"></i></button>
+                    <label class="switch" style="transform: scale(0.8);">
+                        <input type="checkbox" ${isVisible ? 'checked' : ''} onchange="toggleTool('${mode}', ${idx}, this.checked)" ${isLocked ? 'disabled' : ''}>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+            `;
+            list.appendChild(div);
+        });
+    }
+
+    window.switchToolbarMode = (mode) => {
+        renderToolbarSettings();
+    };
+    
+    window.updateDragHandle = (checked) => {
+        config.toolbar.showDragHandle = checked;
+    };
+    
+    window.moveTool = (mode, idx, dir) => {
+        const tools = config.toolbar[mode];
+        if (dir === -1 && idx > 0) {
+            [tools[idx], tools[idx-1]] = [tools[idx-1], tools[idx]];
+        } else if (dir === 1 && idx < tools.length - 1) {
+            [tools[idx], tools[idx+1]] = [tools[idx+1], tools[idx]];
+        }
+        renderToolbarSettings();
+    };
+    
+    window.toggleTool = (mode, idx, checked) => {
+        config.toolbar[mode][idx].visible = checked;
+    };
+ 
+    async function init() {
+        // Load plugins
+        try {
+            const res = await ipcRenderer.invoke('plugin:call', 'screen-compass', 'listPlugins', []);
+            if (Array.isArray(res)) cachedPlugins = res;
+            else if (res && Array.isArray(res.result)) cachedPlugins = res.result;
+        } catch(e) {}
+        
+        // Load Config
+        try {
+            const res = await ipcRenderer.invoke('annotate-get-config'); // Use local handler if possible, or fallback to plugin API
+            if (res) {
+                config = { ...config, ...res }; // Merge defaults
+            }
+        } catch(e) { console.error(e); }
+        
+        // Populate Fields (Always run)
+        populateUI();
+    }
+    
+    function populateUI() {
+        // Buttons
+        renderButtons();
+        
+        // Toolbar
+        initToolbarConfig();
+        renderToolbarSettings();
+        
+        // Plugins
+        renderPlugins();
+        
+        // Writing Prefs
+        const wp = config.writingPreferences || {};
+        if(wp.penColor) {
+            document.getElementById('wp-color').value = wp.penColor;
+            document.getElementById('wp-color-val').innerText = wp.penColor;
+        }
+        if(wp.penSize) {
+            document.getElementById('wp-size').value = wp.penSize;
+            document.getElementById('wp-size-val').innerText = wp.penSize;
+        }
+        if(wp.penTaper !== undefined) document.getElementById('wp-taper').checked = wp.penTaper;
+        if(wp.eraserSize) document.getElementById('wp-eraser').value = wp.eraserSize;
+        
+        // Whiteboard
+        const wb = config.whiteboard || {};
+        if(wb.panAssist !== undefined) document.getElementById('wb-pan-assist').checked = wb.panAssist;
+        if(wb.flowHint !== undefined) document.getElementById('wb-flow-hint').checked = wb.flowHint;
+        if(wb.flowDuration) document.getElementById('wb-flow-duration').value = wb.flowDuration;
+        
+        // Auto Save
+        const as = config.autoSave || {};
+        if(as.enabled !== undefined) document.getElementById('as-enabled').checked = as.enabled;
+        if(as.path) document.getElementById('as-path').value = as.path;
+    }
+    
+    function renderButtons() {
+        const list = document.getElementById('list-buttons');
+        list.innerHTML = '';
+        (config.buttons || []).forEach((item, idx) => {
+            const div = document.createElement('div');
+            div.className = 'list-item';
+            let iconHtml = item.icon.includes('/') ? `<img src="${item.icon}" style="width:20px;">` : `<i class="${item.icon}"></i>`;
+            div.innerHTML = `
+                ${iconHtml}
+                <div class="info">
+                    <div class="label">${item.label} ${item.locked ? '(内置)' : ''}</div>
+                    <div class="sub">${getActionDesc(item)}</div>
+                </div>
+                <div class="actions">
+                    <button class="btn-icon" onclick="moveItem(${idx}, -1)" ${idx===0?'disabled':''}><i class="ri-arrow-up-line"></i></button>
+                    <button class="btn-icon" onclick="moveItem(${idx}, 1)" ${idx===(config.buttons.length-1)?'disabled':''}><i class="ri-arrow-down-line"></i></button>
+                    <button class="btn-icon" onclick="editItem(${idx})" ${item.locked?'disabled':''}><i class="ri-pencil-line"></i></button>
+                    <button class="btn-icon" onclick="deleteItem(${idx})" ${item.locked?'disabled':''}><i class="ri-delete-bin-line"></i></button>
+                </div>
+            `;
+            list.appendChild(div);
+        });
+    }
+
+    function renderPlugins() {
+        const list = document.getElementById('plugin-list');
+        list.innerHTML = '';
+        
+        // Filter: only show video-booth and ppt-annotate
+        const allowedPlugins = ['video-booth', 'ppt-annotate'];
+        const pluginsToShow = (cachedPlugins || []).filter(p => allowedPlugins.includes(p.id));
+        
+        if (pluginsToShow.length === 0) {
+             list.innerHTML = '<div style="padding:10px;color:var(--text-muted);">暂无已联动的插件</div>';
+             return;
+        }
+
+        pluginsToShow.forEach(p => {
+            const div = document.createElement('div');
+            div.className = 'list-item';
+            div.innerHTML = `
+                <i class="ri-plug-line"></i>
+                <div class="info">
+                    <div class="label">${p.name || p.id}</div>
+                    <div class="sub">ID: ${p.id} ${p.version ? `v${p.version}` : ''}</div>
+                </div>
+            `;
+            list.appendChild(div);
+        });
+    }
+    
+    function getActionDesc(item) {
+        if (item.actionType === 'plugin') return `插件: ${item.actionPayload?.pluginId}`;
+        if (item.actionType === 'app') return `应用: ${item.actionPayload?.path}`;
+        return item.actionType;
+    }
+    
+    // Tab Logic
+    window.switchTab = (tabId) => {
+        document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+        
+        const activeItem = Array.from(document.querySelectorAll('.sidebar-item')).find(el => el.innerText === document.querySelector(`[onclick="switchTab('${tabId}')"]`).innerText);
+        // Easier way: click handler sets active class on clicked element
+        // But here I'm using string ID.
+        // Let's iterate sidebar items and match tab-data? No, standard DOM.
+        
+        // Find the element that called this? No, pass 'this'? 
+        // Just rely on querySelector
+        document.querySelector(`.sidebar-item[onclick="switchTab('${tabId}')"]`).classList.add('active');
+        document.getElementById(tabId).classList.add('active');
+    };
+    
+    // Save Logic
+    document.getElementById('btn-save').onclick = async () => {
+        // Collect Data
+        config.writingPreferences = {
+            penColor: document.getElementById('wp-color').value,
+            penSize: parseInt(document.getElementById('wp-size').value),
+            penTaper: document.getElementById('wp-taper').checked,
+            eraserSize: parseInt(document.getElementById('wp-eraser').value)
+        };
+        
+        config.whiteboard = {
+            panAssist: document.getElementById('wb-pan-assist').checked,
+            flowHint: document.getElementById('wb-flow-hint').checked,
+            flowDuration: parseInt(document.getElementById('wb-flow-duration').value)
+        };
+        
+        config.autoSave = {
+            enabled: document.getElementById('as-enabled').checked,
+            path: document.getElementById('as-path').value
+        };
+        
+        // Save
+        try {
+            await ipcRenderer.invoke('config:plugin:set', PLUGIN_ID, 'buttons', config.buttons);
+            await ipcRenderer.invoke('config:plugin:set', PLUGIN_ID, 'toolbar', config.toolbar);
+            await ipcRenderer.invoke('config:plugin:set', PLUGIN_ID, 'writingPreferences', config.writingPreferences);
+            await ipcRenderer.invoke('config:plugin:set', PLUGIN_ID, 'whiteboard', config.whiteboard);
+            await ipcRenderer.invoke('config:plugin:set', PLUGIN_ID, 'autoSave', config.autoSave);
+            
+            // Notify Host
+            ipcRenderer.sendToHost('settings-saved', config);
+            
+            alert('保存成功');
+        } catch(e) {
+            alert('保存失败: ' + e.message);
+        }
+    };
+    
+    // Path Selector
+    window.selectSavePath = async () => {
+        const path = await ipcRenderer.invoke('annotate-select-path');
+        if (path) document.getElementById('as-path').value = path;
+    };
+    
+    // Close
+    window.closeSettings = () => {
+        try { ipcRenderer.sendToHost('close-settings'); } catch(e) { window.close(); }
+    };
+    
+    // ... (Button Editing Logic similar to before) ...
+    window.moveItem = (idx, dir) => {
+        if (dir === -1 && idx > 0) {
+            [config.buttons[idx], config.buttons[idx-1]] = [config.buttons[idx-1], config.buttons[idx]];
+        } else if (dir === 1 && idx < config.buttons.length - 1) {
+            [config.buttons[idx], config.buttons[idx+1]] = [config.buttons[idx+1], config.buttons[idx]];
+        }
+        renderButtons();
+    };
+    
+    window.editItem = (idx) => {
+        editingIndex = idx;
+        let item = (idx >= 0) ? config.buttons[idx] : { label: '新按钮', icon: 'ri-star-line', actionType: 'plugin', actionPayload: {} };
+        document.getElementById('inp-label').value = item.label;
+        document.getElementById('inp-icon').value = item.icon;
+        document.getElementById('inp-action-type').value = item.actionType || 'plugin';
+        renderPayloadFields(item.actionType || 'plugin', item.actionPayload || {});
+        document.getElementById('edit-modal').style.display = 'flex';
+    };
+    
+    window.deleteItem = (idx) => {
+        if(confirm('确定删除?')) { config.buttons.splice(idx, 1); renderButtons(); }
+    };
+    
+    window.closeModal = (id) => document.getElementById(id).style.display = 'none';
+    
+    window.renderPayloadFields = (type, payload) => {
+        const container = document.getElementById('payload-container');
+        container.innerHTML = '';
+        if (type === 'plugin') {
+            const sel = document.createElement('select');
+            sel.innerHTML = '<option value="">选择插件...</option>' + cachedPlugins.map(p => `<option value="${p.id}">${p.name || p.id}</option>`).join('');
+            sel.value = payload.pluginId || '';
+            sel.onchange = () => document.getElementById('pl-fn').value = ''; // Reset fn
+            
+            const fnInput = document.createElement('input');
+            fnInput.type = 'text'; fnInput.id = 'pl-fn'; fnInput.value = payload.fn || ''; fnInput.placeholder = '函数名 (Function)';
+            
+            const argsInput = document.createElement('textarea');
+            argsInput.id = 'pl-args'; argsInput.value = JSON.stringify(payload.args || [], null, 2);
+            
+            appendField(container, '插件 (Plugin ID)', sel);
+            appendField(container, '函数 (Function)', fnInput);
+            appendField(container, '参数 (Args)', argsInput);
+            
+            // Helper: update payload when changed
+            sel.onchange = (e) => payload.pluginId = e.target.value;
+        } else if (type === 'app') {
+            const input = document.createElement('input');
+            input.type = 'text'; input.id = 'pl-path'; input.value = payload.path || '';
+            appendField(container, '路径', input);
+        } else if (type === 'key') {
+            const input = document.createElement('input');
+            input.type = 'text'; input.id = 'pl-key'; input.value = payload.key || '';
+            appendField(container, '按键', input);
+        }
+    };
+    
+    function appendField(container, label, element) {
+        const div = document.createElement('div');
+        div.className = 'form-group';
+        div.innerHTML = `<label>${label}</label>`;
+        div.appendChild(element);
+        container.appendChild(div);
+    }
+    
+    window.confirmEdit = () => {
+        const type = document.getElementById('inp-action-type').value;
+        const newItem = {
+            label: document.getElementById('inp-label').value,
+            icon: document.getElementById('inp-icon').value,
+            actionType: type,
+            actionPayload: {}
+        };
+        
+        if (type === 'plugin') {
+            newItem.actionPayload = {
+                pluginId: document.querySelector('#payload-container select').value,
+                fn: document.getElementById('pl-fn').value,
+                args: JSON.parse(document.getElementById('pl-args').value || '[]')
+            };
+        } else if (type === 'app') {
+            newItem.actionPayload = { path: document.getElementById('pl-path').value };
+        } else if (type === 'key') {
+            newItem.actionPayload = { key: document.getElementById('pl-key').value };
+        }
+        
+        if (editingIndex === -1) config.buttons.push(newItem);
+        else config.buttons[editingIndex] = newItem;
+        
+        renderButtons();
+        closeModal('edit-modal');
+    };
+    
+    // Icon Picker Logic
+    window.openIconPicker = () => {
+        document.getElementById('icon-modal').style.display = 'flex';
+        filterIcons('');
+    };
+    
+    window.filterIcons = (val) => {
+        const grid = document.getElementById('icon-grid');
+        grid.innerHTML = '';
+        COMMON_ICONS.forEach(ic => {
+            if (val && !ic.includes(val)) return;
+            const el = document.createElement('div');
+            el.className = 'icon-cell';
+            el.innerHTML = `<i class="${ic}"></i>`;
+            el.onclick = () => {
+                document.getElementById('inp-icon').value = ic;
+                closeModal('icon-modal');
+            };
+            grid.appendChild(el);
+        });
+    };
+    
+    document.getElementById('wp-color').onchange = (e) => {
+        document.getElementById('wp-color-val').innerText = e.target.value;
+    };
+
+    init();
+  </script>
+</body>
+</html>

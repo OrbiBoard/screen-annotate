@@ -1675,88 +1675,68 @@ function attachObjectListeners(el, obj, dragHandle) {
         const index = strokes.indexOf(obj);
         
         if (index !== -1) {
-             // Check if target is interactive text
+             // Fix: Always stop propagation to prevent window lasso from hijacking the click.
+            e.stopPropagation();
+
+            // If not selected, select it immediately to allow drag-move
+            if (!state.selectedStrokeIndices.includes(index)) {
+                state.selectedStrokeIndices = [index];
+                updateSelectionBounds();
+                showSelectionToolbar();
+            }
+
+            // Start Move Logic
+            // Check if target is interactive text
             if (state.selectedStrokeIndices.includes(index) && (e.target.isContentEditable || e.target.tagName === 'INPUT')) {
-                 e.stopPropagation();
                  return;
             }
 
-            // Logic Change:
-            // If ALREADY selected -> Stop Propagation and start Move.
-            // If NOT selected -> Do NOT Stop Propagation. Let Window start Lasso.
-            // If user releases quickly (Click), the 'click' listener above will select it.
+            state.selectedStrokeIndices = [index]; // Ensure single select for now
             
-            if (state.selectedStrokeIndices.includes(index)) {
-                e.stopPropagation();
-                
-                state.selectedStrokeIndices = [index]; // Ensure single select if moved? Or keep multi?
-                // If it's part of multi-select, dragging one drags all.
-                // So we shouldn't reset to [index] if it's already in the list.
-                // But current logic resets: state.selectedStrokeIndices = [index];
-                // Wait, existing logic was: state.selectedStrokeIndices = [index];
-                // This breaks multi-select move if I click one of them?
-                // Usually: Click on one of selection -> Keep selection.
-                // Click on unselected -> Select only that one.
-                // So if included, don't reset.
-                // But the code below says: state.selectedStrokeIndices = [index];
-                // I should fix that too if I want proper multi-select move behavior.
-                // But for now let's focus on the Lasso requirement.
-                
-                // Existing behavior: Clicking selected object isolates it?
-                // If I have 3 items selected, and I click one to drag, do I drag all 3 or just 1?
-                // Standard app: Dragging selection drags all.
-                // Code: state.selectedStrokeIndices = [index]; -> This resets to single!
-                // Fix: Only reset if not in list. But we are in "if included" block.
-                // So we should NOT reset.
-                
-                updateSelectionBounds();
-                showSelectionToolbar();
-                
-                const cam = state.getActiveCamera();
-                state.isMovingSelection = true;
-                state.dragStart = { x: (e.clientX - cam.x) / cam.z, y: (e.clientY - cam.y) / cam.z };
-                state.originalSelectionStrokes = cloneStrokes(state.selectedStrokeIndices);
-                
-                if (!e.target.isContentEditable && e.target.tagName !== 'INPUT') {
-                    handle.setPointerCapture(e.pointerId);
-                }
-                
-                const onMove = (em) => {
-                    if (!state.isMovingSelection) return;
-                    canvasModule.autoPanOnEdge(em.clientX, em.clientY);
-                    const cm = state.getActiveCamera();
-                    const point = { x: (em.clientX - cm.x) / cm.z, y: (em.clientY - cm.y) / cm.z };
-                    const dx = point.x - state.dragStart.x;
-                    const dy = point.y - state.dragStart.y;
-                    
-                    if (Math.abs(dx * cm.z) < 5 && Math.abs(dy * cm.z) < 5) return;
-                    
-                    moveSelection(dx, dy);
-                    canvasModule.renderCanvas();
-                    getObjectsModule().updateDOMObjects();
-                    updateSelectionToolbarPosition();
-                };
-                
-                const onUp = (eu) => {
-                    state.isMovingSelection = false;
-                    handle.releasePointerCapture(eu.pointerId);
-                    window.removeEventListener('pointermove', onMove);
-                    window.removeEventListener('pointerup', onUp);
-                    
-                    const items = state.selectedStrokeIndices.map((idx, i) => ({
-                        index: idx,
-                        before: state.originalSelectionStrokes[i],
-                        after: cloneStrokes([idx])[0]
-                    }));
-                    getHistory().pushAction({ type: 'transform', items });
-                };
-                
-                window.addEventListener('pointermove', onMove);
-                window.addEventListener('pointerup', onUp);
-            } else {
-                // Not selected. Let it bubble to Window (Lasso).
-                // Do nothing here.
+            updateSelectionBounds();
+            showSelectionToolbar();
+            
+            const cam = state.getActiveCamera();
+            state.isMovingSelection = true;
+            state.dragStart = { x: (e.clientX - cam.x) / cam.z, y: (e.clientY - cam.y) / cam.z };
+            state.originalSelectionStrokes = cloneStrokes(state.selectedStrokeIndices);
+            
+            if (!e.target.isContentEditable && e.target.tagName !== 'INPUT') {
+                handle.setPointerCapture(e.pointerId);
             }
+            
+            const onMove = (em) => {
+                if (!state.isMovingSelection) return;
+                canvasModule.autoPanOnEdge(em.clientX, em.clientY);
+                const cm = state.getActiveCamera();
+                const point = { x: (em.clientX - cm.x) / cm.z, y: (em.clientY - cm.y) / cm.z };
+                const dx = point.x - state.dragStart.x;
+                const dy = point.y - state.dragStart.y;
+                
+                if (Math.abs(dx * cm.z) < 5 && Math.abs(dy * cm.z) < 5) return;
+                
+                moveSelection(dx, dy);
+                canvasModule.renderCanvas();
+                getObjectsModule().updateDOMObjects();
+                updateSelectionToolbarPosition();
+            };
+            
+            const onUp = (eu) => {
+                state.isMovingSelection = false;
+                handle.releasePointerCapture(eu.pointerId);
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                
+                const items = state.selectedStrokeIndices.map((idx, i) => ({
+                    index: idx,
+                    before: state.originalSelectionStrokes[i],
+                    after: cloneStrokes([idx])[0]
+                }));
+                getHistory().pushAction({ type: 'transform', items });
+            };
+            
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
         }
     });
 }

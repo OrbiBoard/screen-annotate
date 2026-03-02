@@ -113,8 +113,15 @@ async function switchToWhiteboard(handleToolClick) {
 }
 
 function enterWhiteboardMode(handleToolClick, previousMode) {
+    if (state.fullscreen.active) {
+        objects.exitFullscreen();
+    }
     state.MODE = 'whiteboard';
+    ipcRenderer.send('annotate-mode-change', 'whiteboard');
     
+    // Close Desktop Toolbar Window
+    ipcRenderer.send('annotate-close-desktop-toolbar');
+
     // Ensure Booth UI is hidden
     const boothControls = document.getElementById('booth-controls');
     if (boothControls) boothControls.style.display = 'none';
@@ -152,7 +159,11 @@ function enterWhiteboardMode(handleToolClick, previousMode) {
     if (!currentBg || currentBg === 'var(--bg)' || currentBg === 'transparent') {
         state.pageBackgrounds[state.currentPageIndex] = '#071a12';
     }
-    document.documentElement.style.setProperty('--bg', state.pageBackgrounds[state.currentPageIndex]);
+    const bgColor = state.pageBackgrounds[state.currentPageIndex];
+    document.documentElement.style.setProperty('--bg', bgColor);
+    
+    // Set window background color for transparent windows
+    ipcRenderer.send('annotate-set-background-color', bgColor);
     
     ui.pageControls.style.display = 'flex';
     ui.leftControls.style.display = 'flex';
@@ -222,6 +233,7 @@ async function importBackgroundAndContinue(handleToolClick) {
 
 function switchToAnnotate(handleToolClick) {
     state.MODE = 'annotate';
+    ipcRenderer.send('annotate-mode-change', 'annotate');
     state.currentTool = 'mouse';
     
     themeModule.applyTheme(state.themeMode, state.themeColor);
@@ -229,21 +241,21 @@ function switchToAnnotate(handleToolClick) {
     document.body.style.backgroundColor = 'transparent';
     document.documentElement.style.backgroundColor = 'transparent';
     
+    // Set window background to transparent for annotation mode
+    ipcRenderer.send('annotate-set-background-color', '#00000000');
+    
     ui.pageControls.style.display = 'none';
     ui.leftControls.style.display = 'none';
     
-    ipcRenderer.send('annotate-set-ignore-mouse-events', true, { forward: true });
+    // Switch to Desktop Toolbar Window
+    ipcRenderer.send('annotate-open-desktop-toolbar');
     
-    // Note: setupMousePassthrough logic is in renderer.js. 
-    // We can assume renderer.js will handle global mouse events or we should export setupMousePassthrough too?
-    // setupMousePassthrough sets up window listeners. It only needs to be called once or managed.
-    // In renderer.js, it's called in initUI.
-    // But it sets isMousePassthroughSetup flag.
-    // If we switch modes, we might need to re-ensure state.
-    // For now, ipcRenderer call above handles the immediate state.
+    // In current window (Canvas Layer), ensure mouse passthrough if tool is mouse
+    ipcRenderer.send('annotate-set-ignore-mouse-events', true, { forward: true });
     
     ui.renderToolbar(handleToolClick);
     canvasModule.renderCanvas();
+    objects.updateDOMObjects();
     
     const collapseBtn = document.getElementById('btn-collapse');
     if (collapseBtn) {
