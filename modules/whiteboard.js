@@ -82,33 +82,26 @@ async function captureScreen(hideStrokes = false) {
 }
 
 async function switchToWhiteboard(handleToolClick) {
-    if (state.MODE !== 'whiteboard') {
-        const previousMode = state.MODE;
-        if (state.MODE === 'booth') {
-            booth.exitBoothMode(handleToolClick, () => {});
-        } else {
-            enterWhiteboardMode(handleToolClick);
-        }
-        
-        // Ensure we are in whiteboard mode now (exitBoothMode sets it to lastMode or annotate)
-        // If lastMode was Annotate, exitBoothMode sets Annotate.
-        // We need to force Whiteboard.
-        state.MODE = 'whiteboard';
-        enterWhiteboardMode(handleToolClick); // Re-apply whiteboard settings
-        
-        updateWhiteboardUI();
-        
-        if (previousMode === 'annotate') {
-            ui.showContinueWhiteboardToast(
-                () => {
-                    importBackgroundAndContinue(handleToolClick);
-                    ui.showModeToast('桌面批注已流转到白板', null, 1500);
-                },
-                () => { /* No action, just close */ }
-            );
-        } else {
-             ui.showModeToast('当前页面为白板页面', null, 1500);
-        }
+    const previousMode = state.MODE;
+    if (state.MODE === 'booth') {
+        booth.exitBoothMode(handleToolClick, () => {});
+    }
+    
+    state.MODE = 'whiteboard';
+    enterWhiteboardMode(handleToolClick);
+    
+    updateWhiteboardUI();
+    
+    if (previousMode === 'annotate') {
+        ui.showContinueWhiteboardToast(
+            () => {
+                importBackgroundAndContinue(handleToolClick);
+                ui.showModeToast('桌面批注已流转到白板', null, 1500);
+            },
+            () => { /* No action, just close */ }
+        );
+    } else if (previousMode !== 'whiteboard') {
+        ui.showModeToast('当前页面为白板页面', null, 1500);
     }
 }
 
@@ -177,12 +170,12 @@ function enterWhiteboardMode(handleToolClick, previousMode) {
     
     const collapseBtn = document.getElementById('btn-collapse');
     if (collapseBtn) {
-        collapseBtn.onclick = () => { switchToAnnotate(handleToolClick); };
+        collapseBtn.onclick = () => { ipcRenderer.send('annotate-minimize'); };
         const icon = collapseBtn.querySelector('i');
-        if (icon) icon.className = 'ri-close-circle-line'; 
+        if (icon) icon.className = 'ri-subtract-line'; 
         const span = collapseBtn.querySelector('span');
-        if (span) span.textContent = '关闭';
-        collapseBtn.title = '关闭';
+        if (span) span.textContent = '最小化';
+        collapseBtn.title = '最小化';
     }
 }
 

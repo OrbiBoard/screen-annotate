@@ -632,15 +632,108 @@ module.exports = {
 
         openWhiteboard() {
             console.log('[ScreenAnnotate] openWhiteboard called');
-            this.openAnnotate();
+            
+            currentMode = 'whiteboard';
 
-            // Switch both to whiteboard mode
+            const { screen } = require('electron');
+            const point = screen.getCursorScreenPoint();
+            const display = screen.getDisplayNearestPoint(point);
+
+            if (annotateWindow && !annotateWindow.isDestroyed()) {
+                if (annotateWindow.isMinimized()) annotateWindow.restore();
+                const currentBounds = annotateWindow.getBounds();
+                if (currentBounds.x !== display.bounds.x || currentBounds.y !== display.bounds.y) {
+                    annotateWindow.setBounds(display.bounds);
+                }
+                annotateWindow.setBackgroundColor('#071a12');
+                annotateWindow.show();
+                annotateWindow.setAlwaysOnTop(true, 'screen-saver');
+                annotateWindow.focus();
+                
+                if (controlsWindow && !controlsWindow.isDestroyed()) {
+                    if (controlsWindow.isMinimized()) controlsWindow.restore();
+                    controlsWindow.setBounds(display.bounds);
+                    controlsWindow.setBackgroundColor('#071a12');
+                    controlsWindow.show();
+                    controlsWindow.setAlwaysOnTop(true, 'screen-saver');
+                }
+                
+                const sendAction = () => {
+                    if (annotateWindow) annotateWindow.webContents.send('action-whiteboard');
+                    if (controlsWindow) controlsWindow.webContents.send('action-whiteboard');
+                };
+                
+                if (annotateWindow.isLoading()) {
+                    annotateWindow.webContents.once('did-finish-load', sendAction);
+                } else {
+                    sendAction();
+                }
+                return;
+            }
+
+            annotateWindow = new BrowserWindow({
+                x: display.bounds.x,
+                y: display.bounds.y,
+                width: display.bounds.width,
+                height: display.bounds.height,
+                transparent: true,
+                frame: false,
+                fullscreen: true,
+                alwaysOnTop: true,
+                skipTaskbar: true,
+                hasShadow: false,
+                title: 'Annotate Layer',
+                webPreferences: {
+                    nodeIntegration: true,
+                    contextIsolation: false,
+                    webSecurity: false,
+                    webviewTag: true
+                }
+            });
+
+            annotateWindow.setAlwaysOnTop(true, 'screen-saver');
+            annotateWindow.loadFile(path.join(__dirname, 'index.html'), { query: { mode: 'whiteboard', role: 'canvas' } });
+
+            annotateWindow.on('closed', () => {
+                annotateWindow = null;
+                if (controlsWindow && !controlsWindow.isDestroyed()) controlsWindow.close();
+            });
+
+            controlsWindow = new BrowserWindow({
+                x: display.bounds.x,
+                y: display.bounds.y,
+                width: display.bounds.width,
+                height: display.bounds.height,
+                transparent: true,
+                frame: false,
+                fullscreen: true,
+                alwaysOnTop: true,
+                type: 'toolbar',
+                skipTaskbar: true,
+                hasShadow: false,
+                title: 'Annotate Controls',
+                webPreferences: {
+                    nodeIntegration: true,
+                    contextIsolation: false,
+                    webSecurity: false,
+                    webviewTag: true
+                }
+            });
+
+            controlsWindow.setAlwaysOnTop(true, 'screen-saver');
+            controlsWindow.loadFile(path.join(__dirname, 'index.html'), { query: { mode: 'whiteboard', role: 'controls' } });
+
+            controlsWindow.on('closed', () => {
+                controlsWindow = null;
+                if (annotateWindow && !annotateWindow.isDestroyed()) annotateWindow.close();
+            });
+
             const sendAction = () => {
                 if (annotateWindow) annotateWindow.webContents.send('action-whiteboard');
                 if (controlsWindow) controlsWindow.webContents.send('action-whiteboard');
             };
 
-            if (annotateWindow && annotateWindow.isLoading()) {
+            if (annotateWindow.isLoading()) {
                 annotateWindow.webContents.once('did-finish-load', sendAction);
             } else {
                 sendAction();
@@ -649,14 +742,110 @@ module.exports = {
 
         openBooth() {
             console.log('[ScreenAnnotate] openBooth called');
-            this.openAnnotate();
+            
+            currentMode = 'booth';
+
+            const { screen } = require('electron');
+            const point = screen.getCursorScreenPoint();
+            const display = screen.getDisplayNearestPoint(point);
+
+            if (annotateWindow && !annotateWindow.isDestroyed()) {
+                if (annotateWindow.isMinimized()) annotateWindow.restore();
+                const currentBounds = annotateWindow.getBounds();
+                if (currentBounds.x !== display.bounds.x || currentBounds.y !== display.bounds.y) {
+                    annotateWindow.setBounds(display.bounds);
+                }
+                annotateWindow.setBackgroundColor('#00000000');
+                annotateWindow.show();
+                annotateWindow.setAlwaysOnTop(true, 'screen-saver');
+                annotateWindow.focus();
+                
+                if (controlsWindow && !controlsWindow.isDestroyed()) {
+                    if (controlsWindow.isMinimized()) controlsWindow.restore();
+                    controlsWindow.setBounds(display.bounds);
+                    controlsWindow.setBackgroundColor('#00000000');
+                    controlsWindow.show();
+                    controlsWindow.setAlwaysOnTop(true, 'screen-saver');
+                }
+                
+                const sendAction = () => {
+                    if (annotateWindow) annotateWindow.webContents.send('action-booth');
+                    if (controlsWindow) controlsWindow.webContents.send('action-booth');
+                };
+                
+                if (annotateWindow.isLoading()) {
+                    annotateWindow.webContents.once('did-finish-load', sendAction);
+                } else {
+                    sendAction();
+                }
+                return;
+            }
+
+            annotateWindow = new BrowserWindow({
+                x: display.bounds.x,
+                y: display.bounds.y,
+                width: display.bounds.width,
+                height: display.bounds.height,
+                transparent: true,
+                frame: false,
+                fullscreen: true,
+                alwaysOnTop: true,
+                skipTaskbar: true,
+                hasShadow: false,
+                title: 'Annotate Layer',
+                backgroundColor: '#00000000',
+                webPreferences: {
+                    nodeIntegration: true,
+                    contextIsolation: false,
+                    webSecurity: false,
+                    webviewTag: true
+                }
+            });
+
+            annotateWindow.setAlwaysOnTop(true, 'screen-saver');
+            annotateWindow.loadFile(path.join(__dirname, 'index.html'), { query: { mode: 'booth', role: 'canvas' } });
+
+            annotateWindow.on('closed', () => {
+                annotateWindow = null;
+                if (controlsWindow && !controlsWindow.isDestroyed()) controlsWindow.close();
+            });
+
+            controlsWindow = new BrowserWindow({
+                x: display.bounds.x,
+                y: display.bounds.y,
+                width: display.bounds.width,
+                height: display.bounds.height,
+                transparent: true,
+                frame: false,
+                fullscreen: true,
+                alwaysOnTop: true,
+                type: 'toolbar',
+                skipTaskbar: true,
+                hasShadow: false,
+                title: 'Annotate Controls',
+                backgroundColor: '#00000000',
+                webPreferences: {
+                    nodeIntegration: true,
+                    contextIsolation: false,
+                    webSecurity: false,
+                    webviewTag: true
+                }
+            });
+
+            controlsWindow.setAlwaysOnTop(true, 'screen-saver');
+            controlsWindow.loadFile(path.join(__dirname, 'index.html'), { query: { mode: 'booth', role: 'controls' } });
+
+            controlsWindow.on('closed', () => {
+                controlsWindow = null;
+                if (annotateWindow && !annotateWindow.isDestroyed()) annotateWindow.close();
+            });
 
             const sendAction = () => {
                 if (annotateWindow) annotateWindow.webContents.send('action-booth');
                 if (controlsWindow) controlsWindow.webContents.send('action-booth');
             };
 
-            if (annotateWindow && annotateWindow.isLoading()) {
+            if (annotateWindow.isLoading()) {
                 annotateWindow.webContents.once('did-finish-load', sendAction);
             } else {
                 sendAction();

@@ -301,8 +301,8 @@
               <div class="form-group">
                   <label>默认笔迹颜色</label>
                   <div class="row">
-                      <input type="color" id="wp-color" value="#ff4d4f" style="width: 40px; height: 30px; padding: 0; border: none;">
-                      <span id="wp-color-val" style="font-size: 12px; color: var(--text-muted);">#ff4d4f</span>
+                      <input type="color" id="wp-color" value="#ffffff" style="width: 40px; height: 30px; padding: 0; border: none;">
+                      <span id="wp-color-val" style="font-size: 12px; color: var(--text-muted);">#ffffff</span>
                   </div>
               </div>
               <div class="form-group">
@@ -312,7 +312,7 @@
               <div class="form-group">
                   <label>开启笔锋</label>
                   <label class="switch">
-                      <input type="checkbox" id="wp-taper">
+                      <input type="checkbox" id="wp-taper" checked>
                       <span class="slider round"></span>
                   </label>
               </div>
@@ -329,6 +329,18 @@
           <!-- Whiteboard Tab -->
           <div id="tab-whiteboard" class="tab-pane">
               <div class="section-title">白板设置</div>
+              <div class="form-group">
+                  <label>默认背景色</label>
+                  <div class="row" style="flex-wrap: wrap; gap: 8px;">
+                      <div class="color-swatch-wb" style="background: #071a12; width: 32px; height: 32px; border-radius: 4px; cursor: pointer; border: 2px solid transparent;" data-color="#071a12" title="深绿"></div>
+                      <div class="color-swatch-wb" style="background: #1a1a2e; width: 32px; height: 32px; border-radius: 4px; cursor: pointer; border: 2px solid transparent;" data-color="#1a1a2e" title="深蓝"></div>
+                      <div class="color-swatch-wb" style="background: #2d2d2d; width: 32px; height: 32px; border-radius: 4px; cursor: pointer; border: 2px solid transparent;" data-color="#2d2d2d" title="深灰"></div>
+                      <div class="color-swatch-wb" style="background: #ffffff; width: 32px; height: 32px; border-radius: 4px; cursor: pointer; border: 2px solid transparent;" data-color="#ffffff" title="白色"></div>
+                      <div class="color-swatch-wb" style="background: #f5f5dc; width: 32px; height: 32px; border-radius: 4px; cursor: pointer; border: 2px solid transparent;" data-color="#f5f5dc" title="米黄"></div>
+                      <div class="color-swatch-wb" style="background: #000000; width: 32px; height: 32px; border-radius: 4px; cursor: pointer; border: 2px solid #333;" data-color="#000000" title="黑色"></div>
+                      <input type="color" id="wb-default-bg-custom" value="#071a12" style="width: 32px; height: 32px; padding: 0; border: none; cursor: pointer;" title="自定义颜色">
+                  </div>
+              </div>
               <div class="form-group">
                   <label>漫游辅助移动 (边缘自动漫游)</label>
                   <label class="switch">
@@ -632,6 +644,22 @@
         if(wb.panAssist !== undefined) document.getElementById('wb-pan-assist').checked = wb.panAssist;
         if(wb.flowHint !== undefined) document.getElementById('wb-flow-hint').checked = wb.flowHint;
         if(wb.flowDuration) document.getElementById('wb-flow-duration').value = wb.flowDuration;
+        if(wb.defaultBgColor) {
+            document.getElementById('wb-default-bg-custom').value = wb.defaultBgColor;
+            updateBgSwatchSelection(wb.defaultBgColor);
+        }
+        
+        // Setup background color swatch click handlers
+        document.querySelectorAll('.color-swatch-wb').forEach(el => {
+            el.onclick = () => {
+                const color = el.dataset.color;
+                document.getElementById('wb-default-bg-custom').value = color;
+                updateBgSwatchSelection(color);
+            };
+        });
+        document.getElementById('wb-default-bg-custom').oninput = (e) => {
+            updateBgSwatchSelection(e.target.value);
+        };
         
         // Auto Save
         const as = config.autoSave || {};
@@ -723,6 +751,7 @@
         };
         
         config.whiteboard = {
+            defaultBgColor: document.getElementById('wb-default-bg-custom').value,
             panAssist: document.getElementById('wb-pan-assist').checked,
             flowHint: document.getElementById('wb-flow-hint').checked,
             flowDuration: parseInt(document.getElementById('wb-flow-duration').value)
@@ -880,6 +909,16 @@
     document.getElementById('wp-color').onchange = (e) => {
         document.getElementById('wp-color-val').innerText = e.target.value;
     };
+    
+    function updateBgSwatchSelection(selectedColor) {
+        document.querySelectorAll('.color-swatch-wb').forEach(el => {
+            if (el.dataset.color === selectedColor) {
+                el.style.borderColor = '#0066cc';
+            } else {
+                el.style.borderColor = el.dataset.color === '#000000' ? '#333' : 'transparent';
+            }
+        });
+    }
 
     init();
   </script>

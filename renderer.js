@@ -537,14 +537,7 @@ function handleToolClick(toolId, isInternal) {
   }
 
   if (toolId === 'close') {
-    if (state.MODE === 'booth') {
-        stopBoothMinimapStream();
-        booth.exitBoothMode(handleToolClick, () => whiteboard.switchToAnnotate(handleToolClick));
-    } else if (state.MODE === 'whiteboard') {
-        whiteboard.switchToAnnotate(handleToolClick);
-    } else {
-        ipcRenderer.send('annotate-close');
-    }
+    ipcRenderer.send('annotate-minimize');
     return;
   }
   if (toolId === 'booth') {

@@ -1216,7 +1216,7 @@ function toggleToolMenu(type) {
 
     toolSettingsPopup.style.display = 'block';
     toolSettingsPopup.dataset.type = type;
-    penSettings.style.display = (type === 'pen' || type === 'shape') ? 'flex' : 'none';
+    penSettings.style.display = type === 'pen' ? 'flex' : 'none';
     eraserSettings.style.display = type === 'eraser' ? 'flex' : 'none';
     if (panSettings) panSettings.style.display = type === 'pan' ? 'flex' : 'none';
     if (shapeSettings) shapeSettings.style.display = type === 'shape' ? 'block' : 'none';
@@ -2735,7 +2735,15 @@ async function applyConfig(config) {
     // Whiteboard Settings
     if (config.whiteboard) {
         state.whiteboardSettings = config.whiteboard;
-        // Apply logic if needed (e.g. toggle pan assist)
+        const edgePanLayer = document.getElementById('edge-pan-layer');
+        if (edgePanLayer && state.MODE !== 'annotate') {
+            edgePanLayer.style.display = config.whiteboard.panAssist ? 'block' : 'none';
+        }
+        if (config.whiteboard.defaultBgColor && state.MODE === 'whiteboard') {
+            state.pageBackgrounds[state.currentPageIndex] = config.whiteboard.defaultBgColor;
+            document.documentElement.style.setProperty('--bg', config.whiteboard.defaultBgColor);
+            ipcRenderer.send('annotate-set-background-color', config.whiteboard.defaultBgColor);
+        }
     }
     
     // Auto Save
@@ -2779,7 +2787,7 @@ async function toggleMorePopup() {
         toolSettingsPopup.style.display = 'none';
         if (shapeStatusPopup) shapeStatusPopup.style.display = 'none';
         
-        if (!moreConfig) await loadMoreConfig();
+        if (!moreConfig) await loadConfig();
         renderMorePopup();
         
         // Position popup for desktop toolbar
