@@ -511,20 +511,32 @@ function initUI() {
                   triggerPersistence();
                   closeAllPopups();
               } else if (tool === 'pen') {
-                  if (activePopup === penPopup) closeAllPopups();
-                  else { showPopup(penPopup); updatePenUI(); }
-                  state.currentTool = 'pen';
-                  updateToolbarActive('pen');
+                  if (state.currentTool === 'pen') {
+                      if (activePopup === penPopup) closeAllPopups();
+                      else { showPopup(penPopup); updatePenUI(); }
+                  } else {
+                      closeAllPopups();
+                      state.currentTool = 'pen';
+                      updateToolbarActive('pen');
+                  }
               } else if (tool === 'eraser') {
-                  if (activePopup === eraserPopup) closeAllPopups();
-                  else { showPopup(eraserPopup); updateEraserUI(); }
-                  state.currentTool = 'eraser';
-                  updateToolbarActive('eraser');
+                  if (state.currentTool === 'eraser') {
+                      if (activePopup === eraserPopup) closeAllPopups();
+                      else { showPopup(eraserPopup); updateEraserUI(); }
+                  } else {
+                      closeAllPopups();
+                      state.currentTool = 'eraser';
+                      updateToolbarActive('eraser');
+                  }
               } else if (tool === 'shape') {
-                  if (activePopup === shapePopup) closeAllPopups();
-                  else { showPopup(shapePopup); updateShapeUI(); }
-                  state.currentTool = 'shape';
-                  updateToolbarActive('shape');
+                  if (state.currentTool === 'shape') {
+                      if (activePopup === shapePopup) closeAllPopups();
+                      else { showPopup(shapePopup); updateShapeUI(); }
+                  } else {
+                      closeAllPopups();
+                      state.currentTool = 'shape';
+                      updateToolbarActive('shape');
+                  }
               } else if (tool === 'select') {
                   state.currentTool = 'select';
                   updateToolbarActive('select');
@@ -2089,12 +2101,15 @@ function applyAdjustment(props) {
 
 // --- Window Listener for Lasso (Empty Space Click) ---
 window.addEventListener('pointerdown', (e) => {
-    if (ui.adjustPopup.style.display !== 'none') {
+    // Skip if the event is on the canvas (handled by canvas event listener)
+    if (e.target === canvasModule.canvas || e.target.closest('#canvas-layer')) return;
+    
+    if (ui.adjustPopup && ui.adjustPopup.style.display !== 'none') {
         if (!e.target.closest('#adjust-popup') && !e.target.closest('#btn-sel-adjust')) {
              ui.adjustPopup.style.display = 'none';
         }
     }
-    if (ui.insertMenuPopup.style.display !== 'none') {
+    if (ui.insertMenuPopup && ui.insertMenuPopup.style.display !== 'none') {
         if (!e.target.closest('#insert-menu-popup') && !e.target.closest('#btn-insert-media')) {
              ui.insertMenuPopup.style.display = 'none';
         }
@@ -2117,44 +2132,21 @@ window.addEventListener('pointerdown', (e) => {
         e.target.closest('#selection-toolbar') || 
         e.target.closest('.modal-overlay') ||
         e.target.closest('#insert-menu-popup') || 
-        e.target.closest('#adjust-popup')) {
+        e.target.closest('#adjust-popup') ||
+        e.target.closest('.embed-toolbar') ||
+        e.target.closest('.embed-popup')) {
         return;
     }
     
-    const point = utils.getPoint(e);
-    state.lassoPoints = [point]; 
+    // Clear selection when clicking outside canvas
+    state.lassoPoints = [];
     state.selectedStrokeIndices = [];
     state.selectionBounds = null;
-    document.getElementById('selection-toolbar').style.display = 'none';
-    document.getElementById('selection-overlay').style.display = 'none';
-    state.isDrawing = true;
+    const selToolbar = document.getElementById('selection-toolbar');
+    const selOverlay = document.getElementById('selection-overlay');
+    if (selToolbar) selToolbar.style.display = 'none';
+    if (selOverlay) selOverlay.style.display = 'none';
     canvasModule.renderCanvas();
-    
-    const onMove = (em) => {
-        if (!state.isDrawing) return;
-        const p = utils.getPoint(em);
-        state.lassoPoints.push(p);
-        canvasModule.renderCanvas();
-    };
-    
-    const onUp = () => {
-        state.isDrawing = false;
-        if (state.lassoPoints.length > 0) {
-            selection.performLassoSelection();
-            state.lassoPoints = [];
-        }
-        if (state.selectedStrokeIndices.length > 0) {
-            selection.updateSelectionBounds();
-            selection.showSelectionToolbar();
-        }
-        canvasModule.renderCanvas();
-        objects.updateDOMObjects();
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-    };
-    
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
 });
 
 // Listen for settings closed event from ui.js
