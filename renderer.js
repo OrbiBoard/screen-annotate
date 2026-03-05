@@ -19,6 +19,100 @@ const whiteboard = require('./modules/whiteboard');
 // --- IPC Forwarding Logic for Separate Windows ---
 const urlParams = new URLSearchParams(window.location.search);
 const currentRole = urlParams.get('role'); // 'canvas' or 'controls'
+const variant = urlParams.get('variant'); // 'embed' for embedded mode
+const persistKey = urlParams.get('persistKey'); // key for persistence
+
+state.variant = variant;
+state.persistKey = persistKey;
+
+let persistenceDebounceTimer = null;
+
+function triggerPersistence() {
+    if (!persistKey) return;
+    
+    if (persistenceDebounceTimer) {
+        clearTimeout(persistenceDebounceTimer);
+    }
+    
+    persistenceDebounceTimer = setTimeout(() => {
+        saveStrokesToParent();
+    }, 500);
+}
+
+function saveStrokesToParent() {
+    const strokes = state.pages[state.currentPageIndex];
+    const serializableStrokes = strokes.map(s => {
+        if (s.type === 'pen') {
+            return {
+                type: s.type,
+                points: s.points,
+                color: s.color,
+                size: s.size,
+                taper: s.taper
+            };
+        } else if (s.type === 'shape') {
+            return {
+                type: s.type,
+                shapeType: s.shapeType,
+                start: s.start,
+                end: s.end,
+                color: s.color,
+                size: s.size,
+                depthEnd: s.depthEnd,
+                step: s.step
+            };
+        }
+        return s;
+    });
+    
+    const data = {
+        pages: [serializableStrokes],
+        currentPageIndex: 0
+    };
+    
+    if (variant === 'embed') {
+        try {
+            const { ipcRenderer } = require('electron');
+            ipcRenderer.sendToHost('annotate-persist', { key: persistKey, data });
+        } catch (e) {}
+    } else {
+        window.parent.postMessage({
+            type: 'annotate-persist',
+            key: persistKey,
+            data
+        }, '*');
+    }
+}
+
+function loadPersistedStrokes() {
+    if (variant === 'embed') {
+        try {
+            const { ipcRenderer } = require('electron');
+            ipcRenderer.sendToHost('annotate-load', { key: persistKey });
+        } catch (e) {}
+    } else {
+        window.parent.postMessage({
+            type: 'annotate-load',
+            key: persistKey
+        }, '*');
+    }
+}
+
+window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'annotate-load-response' && event.data.key === persistKey) {
+        const data = event.data.data;
+        if (data && data.pages && data.pages.length > 0) {
+            const loadedStrokes = data.pages[0] || [];
+            state.pages[0] = loadedStrokes.map(s => {
+                if (s.type === 'shape' && s.shapeType) {
+                    state.currentShape = s.shapeType;
+                }
+                return s;
+            });
+            canvasModule.renderCanvas();
+        }
+    }
+});
 
 if (currentRole === 'controls') {
     // Forward events to main process to be sent to canvas
@@ -82,9 +176,397 @@ ipcRenderer.on('booth-freeze', (event, freeze) => {
 // --- UI Initialization ---
 
 function initUI() {
-    
+  
+  // --- Embed Mode Initialization ---
+  if (variant === 'embed') {
+      state.MODE = 'whiteboard';
+      state.currentTool = 'pen';
+      document.body.classList.add('role-embed');
+      
+      const style = document.createElement('style');
+      style.textContent = `
+          * { box-sizing: border-box; }
+          .toolbar-container, .bottom-controls, .tool-popup, .tool-settings-popup, 
+          #page-preview-popup, #selection-toolbar, #selection-overlay, .edge-pan-btn,
+          #left-controls, #page-controls, #settings-layer, #booth-layer, #fullscreen-browser-layer,
+          #shape-status-popup, #more-popup, #save-popup, #adjust-popup, #insert-menu-popup,
+          #text-edit-popup, #modal-dialog, #media-controls, #volume-popup, #screenshot-mask,
+          #screenshot-minibar, #fullscreen-exit-btn, #gallery-view, .mode-toast, #wb-continue-toast,
+          #whiteboard-background, #edge-pan-layer, .selection-menu, #minimap-container {
+              display: none !important;
+          }
+          html, body {
+              background: transparent !important;
+              overflow: hidden !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              width: 100% !important;
+              height: 100% !important;
+              position: relative;
+          }
+          #canvas-layer {
+              position: absolute !important;
+              top: 0 !important;
+              left: 0 !important;
+              width: 100% !important;
+              height: 100% !important;
+              pointer-events: auto !important;
+              display: block !important;
+          }
+          .embed-toolbar {
+              position: fixed;
+              bottom: 16px;
+              left: 50%;
+              transform: translateX(-50%);
+              display: flex;
+              gap: 8px;
+              background: var(--panel);
+              border: 1px solid var(--border);
+              border-radius: 12px;
+              padding: 8px 12px;
+              z-index: 1000;
+              backdrop-filter: blur(10px);
+          }
+          .embed-toolbar .tool-btn {
+              min-width: 40px;
+              height: 40px;
+              border-radius: 8px;
+              background: transparent;
+              border: none;
+              color: var(--fg);
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              transition: background 0.2s;
+          }
+          .embed-toolbar .tool-btn:hover {
+              background: rgba(255,255,255,0.1);
+          }
+          .embed-toolbar .tool-btn.active {
+              background: var(--accent);
+              color: white;
+          }
+          .embed-toolbar .separator {
+              width: 1px;
+              height: 24px;
+              background: var(--border);
+              margin: 8px 4px;
+          }
+          #embed-popups { 
+              position: fixed; 
+              z-index: 1001; 
+              bottom: 70px;
+              left: 50%;
+              transform: translateX(-50%);
+              display: none;
+          }
+          #embed-popups.visible {
+              display: block;
+          }
+          .embed-popup {
+              background: var(--panel);
+              border: 1px solid var(--border);
+              border-radius: 12px;
+              padding: 12px;
+              min-width: 200px;
+              backdrop-filter: blur(10px);
+              display: none;
+          }
+          .embed-popup.visible {
+              display: block;
+          }
+          .popup-title {
+              font-size: 12px;
+              color: var(--muted);
+              margin-bottom: 8px;
+              text-align: center;
+          }
+          .color-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 8px; }
+          .color-swatch {
+              width: 28px; height: 28px;
+              border-radius: 50%;
+              cursor: pointer;
+              border: 2px solid transparent;
+              transition: transform 0.2s;
+          }
+          .color-swatch:hover { transform: scale(1.1); }
+          .color-swatch.active { border-color: var(--accent); }
+          .slider-row {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              font-size: 12px;
+              color: var(--fg);
+          }
+          .slider-row input { flex: 1; }
+          .size-row { display: flex; gap: 8px; justify-content: center; }
+          .size-btn {
+              padding: 6px 16px;
+              background: var(--item-bg);
+              border-radius: 6px;
+              cursor: pointer;
+              font-size: 12px;
+              color: var(--fg);
+              transition: background 0.2s;
+          }
+          .size-btn:hover { background: var(--border); }
+          .size-btn.active { background: var(--accent); color: white; }
+          .shape-grid {
+              display: grid;
+              grid-template-columns: repeat(5, 1fr);
+              gap: 6px;
+          }
+          .shape-btn {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              padding: 8px 4px;
+              background: var(--item-bg);
+              border-radius: 6px;
+              cursor: pointer;
+              font-size: 10px;
+              color: var(--fg);
+              transition: background 0.2s;
+          }
+          .shape-btn:hover { background: var(--border); }
+          .shape-btn.active { background: var(--accent); color: white; }
+          .shape-btn i { font-size: 18px; margin-bottom: 2px; }
+      `;
+      document.head.appendChild(style);
+      
+      themeModule.applyTheme('system', '#238f4a');
+      
+      const embedCanvas = canvasModule.canvas;
+      embedCanvas.style.pointerEvents = 'auto';
+      
+      const doResize = () => {
+          const w = window.innerWidth || document.documentElement.clientWidth || 800;
+          const h = window.innerHeight || document.documentElement.clientHeight || 600;
+          embedCanvas.width = w;
+          embedCanvas.height = h;
+          canvasModule.renderCanvas();
+      };
+      
+      doResize();
+      window.addEventListener('resize', doResize);
+      requestAnimationFrame(() => requestAnimationFrame(doResize));
+      setTimeout(doResize, 100);
+      setTimeout(doResize, 500);
+      
+      try {
+          ipcRenderer.send('annotate-set-ignore-mouse-events', false);
+      } catch (e) {}
+      
+      const embedToolbar = document.createElement('div');
+      embedToolbar.className = 'embed-toolbar';
+      embedToolbar.innerHTML = `
+          <button class="tool-btn active" data-tool="pen" title="画笔"><i class="ri-pencil-fill"></i></button>
+          <button class="tool-btn" data-tool="eraser" title="橡皮"><i class="ri-eraser-line"></i></button>
+          <button class="tool-btn" data-tool="shape" title="形状"><i class="ri-shape-line"></i></button>
+          <button class="tool-btn" data-tool="select" title="选择"><i class="ri-cursor-line"></i></button>
+          <button class="tool-btn" data-tool="pan" title="漫游"><i class="ri-drag-move-line"></i></button>
+          <div class="separator"></div>
+          <button class="tool-btn" data-tool="undo" title="撤销"><i class="ri-arrow-go-back-line"></i></button>
+          <button class="tool-btn" data-tool="redo" title="重做"><i class="ri-arrow-go-forward-line"></i></button>
+          <div class="separator"></div>
+          <button class="tool-btn" data-tool="clear" title="清空"><i class="ri-delete-bin-line"></i></button>
+      `;
+      document.body.appendChild(embedToolbar);
+      
+      const embedPopups = document.createElement('div');
+      embedPopups.id = 'embed-popups';
+      embedPopups.innerHTML = `
+          <div id="embed-pen-popup" class="embed-popup">
+              <div class="popup-title">画笔设置</div>
+              <div class="color-row">
+                  <div class="color-swatch" style="background:#ffffff" data-color="#ffffff"></div>
+                  <div class="color-swatch" style="background:#ff4d4f" data-color="#ff4d4f"></div>
+                  <div class="color-swatch" style="background:#fadb14" data-color="#fadb14"></div>
+                  <div class="color-swatch" style="background:#52c41a" data-color="#52c41a"></div>
+                  <div class="color-swatch" style="background:#1890ff" data-color="#1890ff"></div>
+                  <div class="color-swatch" style="background:#000000;border:1px solid #666" data-color="#000000"></div>
+              </div>
+              <div class="slider-row">
+                  <span>粗细</span>
+                  <input type="range" id="embed-pen-size" min="1" max="50" value="6">
+                  <span id="embed-pen-size-val">6</span>
+              </div>
+          </div>
+          <div id="embed-eraser-popup" class="embed-popup">
+              <div class="popup-title">橡皮设置</div>
+              <div class="size-row">
+                  <div class="size-btn" data-size="30">小</div>
+                  <div class="size-btn active" data-size="80">中</div>
+                  <div class="size-btn" data-size="150">大</div>
+              </div>
+          </div>
+          <div id="embed-shape-popup" class="embed-popup">
+              <div class="popup-title">形状选择</div>
+              <div class="shape-grid">
+                  <div class="shape-btn" data-shape="line"><i class="ri-subtract-line"></i><span>直线</span></div>
+                  <div class="shape-btn" data-shape="arrow"><i class="ri-arrow-right-line"></i><span>箭头</span></div>
+                  <div class="shape-btn" data-shape="double-arrow"><i class="ri-arrow-left-right-line"></i><span>双箭头</span></div>
+                  <div class="shape-btn" data-shape="rect"><i class="ri-checkbox-blank-line"></i><span>矩形</span></div>
+                  <div class="shape-btn" data-shape="circle"><i class="ri-checkbox-blank-circle-line"></i><span>圆形</span></div>
+                  <div class="shape-btn" data-shape="triangle"><i class="ri-play-line" style="transform:rotate(-90deg)"></i><span>三角形</span></div>
+                  <div class="shape-btn" data-shape="ellipse"><i class="ri-loader-3-line"></i><span>椭圆</span></div>
+                  <div class="shape-btn" data-shape="pentagon"><i class="ri-pentagon-line"></i><span>五边形</span></div>
+                  <div class="shape-btn" data-shape="hexagon"><i class="ri-hexagon-line"></i><span>六边形</span></div>
+                  <div class="shape-btn" data-shape="axis-xy"><i class="ri-ruler-line"></i><span>XY轴</span></div>
+              </div>
+          </div>
+      `;
+      document.body.appendChild(embedPopups);
+      
+      const penPopup = document.getElementById('embed-pen-popup');
+      const eraserPopup = document.getElementById('embed-eraser-popup');
+      const shapePopup = document.getElementById('embed-shape-popup');
+      let activePopup = null;
+      
+      function closeAllPopups() {
+          embedPopups.classList.remove('visible');
+          penPopup.classList.remove('visible');
+          eraserPopup.classList.remove('visible');
+          shapePopup.classList.remove('visible');
+          activePopup = null;
+      }
+      
+      function showPopup(popup) {
+          closeAllPopups();
+          embedPopups.classList.add('visible');
+          popup.classList.add('visible');
+          activePopup = popup;
+      }
+      
+      function updatePenUI() {
+          penPopup.querySelectorAll('.color-swatch').forEach(s => {
+              s.classList.toggle('active', s.dataset.color === state.penColor);
+          });
+          document.getElementById('embed-pen-size').value = state.penSize;
+          document.getElementById('embed-pen-size-val').textContent = state.penSize;
+      }
+      
+      function updateEraserUI() {
+          eraserPopup.querySelectorAll('.size-btn').forEach(b => {
+              b.classList.toggle('active', parseInt(b.dataset.size) === state.eraserSize);
+          });
+      }
+      
+      function updateShapeUI() {
+          shapePopup.querySelectorAll('.shape-btn').forEach(b => {
+              b.classList.toggle('active', b.dataset.shape === state.currentShape);
+          });
+      }
+      
+      function updateToolbarActive(tool) {
+          embedToolbar.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+          const btn = embedToolbar.querySelector(`[data-tool="${tool}"]`);
+          if (btn) btn.classList.add('active');
+      }
+      
+      penPopup.querySelectorAll('.color-swatch').forEach(s => {
+          s.onclick = () => { state.penColor = s.dataset.color; updatePenUI(); };
+      });
+      
+      document.getElementById('embed-pen-size').oninput = (e) => {
+          state.penSize = parseInt(e.target.value);
+          document.getElementById('embed-pen-size-val').textContent = state.penSize;
+      };
+      
+      eraserPopup.querySelectorAll('.size-btn').forEach(b => {
+          b.onclick = () => { state.eraserSize = parseInt(b.dataset.size); updateEraserUI(); };
+      });
+      
+      shapePopup.querySelectorAll('.shape-btn').forEach(b => {
+          b.onclick = () => {
+              state.currentShape = b.dataset.shape;
+              state.currentTool = 'shape';
+              updateShapeUI();
+              updateToolbarActive('shape');
+              closeAllPopups();
+          };
+      });
+      
+      if (!state.currentShape) state.currentShape = 'rect';
+      updatePenUI();
+      updateEraserUI();
+      updateShapeUI();
+      
+      embedToolbar.querySelectorAll('.tool-btn').forEach(btn => {
+          btn.onclick = (e) => {
+              const tool = btn.dataset.tool;
+              
+              if (tool === 'clear') {
+                  state.pages[state.currentPageIndex] = [];
+                  canvasModule.renderCanvas();
+                  triggerPersistence();
+                  closeAllPopups();
+              } else if (tool === 'undo') {
+                  history.undo();
+                  triggerPersistence();
+                  closeAllPopups();
+              } else if (tool === 'redo') {
+                  history.redo();
+                  triggerPersistence();
+                  closeAllPopups();
+              } else if (tool === 'pen') {
+                  if (activePopup === penPopup) closeAllPopups();
+                  else { showPopup(penPopup); updatePenUI(); }
+                  state.currentTool = 'pen';
+                  updateToolbarActive('pen');
+              } else if (tool === 'eraser') {
+                  if (activePopup === eraserPopup) closeAllPopups();
+                  else { showPopup(eraserPopup); updateEraserUI(); }
+                  state.currentTool = 'eraser';
+                  updateToolbarActive('eraser');
+              } else if (tool === 'shape') {
+                  if (activePopup === shapePopup) closeAllPopups();
+                  else { showPopup(shapePopup); updateShapeUI(); }
+                  state.currentTool = 'shape';
+                  updateToolbarActive('shape');
+              } else if (tool === 'select') {
+                  state.currentTool = 'select';
+                  updateToolbarActive('select');
+                  closeAllPopups();
+              } else if (tool === 'pan') {
+                  state.currentTool = 'pan';
+                  updateToolbarActive('pan');
+                  closeAllPopups();
+              }
+          };
+      });
+      
+      document.addEventListener('click', (e) => {
+          if (!e.target.closest('.embed-toolbar') && !e.target.closest('.embed-popup')) {
+              closeAllPopups();
+          }
+      });
+      
+      window.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') closeAllPopups();
+          if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedStrokeIndices.length > 0) {
+              selection.deleteSelection();
+              canvasModule.renderCanvas();
+              triggerPersistence();
+          }
+          if (e.ctrlKey && e.key === 'z') { e.preventDefault(); history.undo(); triggerPersistence(); }
+          if (e.ctrlKey && e.key === 'y') { e.preventDefault(); history.redo(); triggerPersistence(); }
+      });
+      
+      canvasModule.canvas.addEventListener('pointerup', () => {
+          if (variant === 'embed') triggerPersistence();
+      });
+      
+      if (persistKey) loadPersistedStrokes();
+      
+      canvasModule.renderCanvas();
+  }
+  
   // --- Window Role Separation ---
-  if (currentRole === 'canvas') {
+  if (variant === 'embed') {
+      // Embed mode skips the rest of UI initialization
+  } else if (currentRole === 'canvas') {
       document.body.classList.add('role-canvas');
       // Hide UI elements in canvas window
       const style = document.createElement('style');
@@ -248,6 +730,9 @@ function initUI() {
           ipcRenderer.send('annotate-open-desktop-toolbar');
       });
   }
+
+  // Skip remaining initialization for embed mode
+  if (variant === 'embed') return;
 
   booth.checkVideoBoothPlugin();
   ppt.checkPPTPlugin();
@@ -437,6 +922,85 @@ window.addEventListener('wheel', (e) => {
         canvasModule.renderCanvas();
         objects.updateDOMObjects();
         ui.updateMinimap();
+    }
+}, { passive: false });
+
+// Touch gesture support for pinch-zoom and pan
+let touchStartDistance = 0;
+let touchStartZoom = 1;
+let touchStartCamera = null;
+let lastTouchCenter = null;
+
+window.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+        e.preventDefault();
+        const touch1 = e.touches[0];
+        const touch2 = e.touches[1];
+        touchStartDistance = Math.hypot(
+            touch2.clientX - touch1.clientX,
+            touch2.clientY - touch1.clientY
+        );
+        touchStartZoom = state.camera.z;
+        touchStartCamera = { ...state.getActiveCamera() };
+        lastTouchCenter = {
+            x: (touch1.clientX + touch2.clientX) / 2,
+            y: (touch1.clientY + touch2.clientY) / 2
+        };
+    }
+}, { passive: false });
+
+window.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && touchStartCamera) {
+        e.preventDefault();
+        const touch1 = e.touches[0];
+        const touch2 = e.touches[1];
+        
+        // Calculate zoom
+        const currentDistance = Math.hypot(
+            touch2.clientX - touch1.clientX,
+            touch2.clientY - touch1.clientY
+        );
+        const scale = currentDistance / touchStartDistance;
+        const newZoom = Math.min(Math.max(touchStartZoom * scale, 0.1), 10);
+        
+        // Calculate center
+        const currentCenter = {
+            x: (touch1.clientX + touch2.clientX) / 2,
+            y: (touch1.clientY + touch2.clientY) / 2
+        };
+        
+        // Update camera
+        const camera = state.getActiveCamera();
+        const wx = (lastTouchCenter.x - touchStartCamera.x) / touchStartZoom;
+        const wy = (lastTouchCenter.y - touchStartCamera.y) / touchStartZoom;
+        
+        camera.z = newZoom;
+        camera.x = currentCenter.x - wx * newZoom;
+        camera.y = currentCenter.y - wy * newZoom;
+        
+        if (state.MODE === 'booth') {
+            ipcRenderer.send('video-booth-zoom', { 
+                zoom: newZoom, 
+                x: camera.x, 
+                y: camera.y,
+                delta: 0,
+                clientX: currentCenter.x,
+                clientY: currentCenter.y
+            });
+            booth.updateBackgroundTransform(camera);
+        }
+
+        canvasModule.renderCanvas();
+        objects.updateDOMObjects();
+        ui.updateMinimap();
+    }
+}, { passive: false });
+
+window.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) {
+        touchStartDistance = 0;
+        touchStartCamera = null;
+        lastTouchCenter = null;
     }
 }, { passive: false });
 
@@ -853,19 +1417,19 @@ canvasModule.canvas.addEventListener('pointerdown', (e) => {
   if (currentRole === 'desktop-toolbar') return;
   
   if (state.currentTool === 'mouse') return;
-  if (e.button !== 0) return;
+  // Skip if not left mouse button, but allow touch events (which have button === -1 or undefined)  if (e.button !== 0 && e.button !== -1 && typeof e.button !== 'undefined') return;
   
   if (state.isMenuOpen) {
-    ui.toolSettingsPopup.style.display = 'none';
+    if (ui.toolSettingsPopup) ui.toolSettingsPopup.style.display = 'none';
     state.isMenuOpen = false;
   }
   
   document.querySelectorAll('.edge-pan-btn').forEach(b => b.classList.remove('visible'));
   
-  if (ui.adjustPopup.style.display !== 'none') {
+  if (ui.adjustPopup && ui.adjustPopup.style.display !== 'none') {
     ui.adjustPopup.style.display = 'none';
   }
-  if (ui.insertMenuPopup.style.display !== 'none') {
+  if (ui.insertMenuPopup && ui.insertMenuPopup.style.display !== 'none') {
     ui.insertMenuPopup.style.display = 'none';
   }
 
@@ -914,6 +1478,11 @@ canvasModule.canvas.addEventListener('pointerdown', (e) => {
         return;
       }
     }
+    
+    // Start lasso selection
+    state.isDrawing = true;
+    state.lassoPoints = [point];
+    return;
   }
 
 
@@ -1155,7 +1724,7 @@ canvasModule.canvas.addEventListener('pointerup', (e) => {
             x: state.drawStartPoint.x * cam.z + cam.x,
             y: state.drawStartPoint.y * cam.z + cam.y
         };
-        ui.showModeToast(state.currentTool, screenPos);
+        if (ui.showModeToast) ui.showModeToast(state.currentTool, screenPos);
     }
   }
   

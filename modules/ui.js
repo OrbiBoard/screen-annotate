@@ -732,13 +732,18 @@ function renderToolbar(handleToolClickCallback) {
 function updateMinimap() {
     if (panOverlay.style.display === 'none' || minimapContainer.style.display === 'none') return;
     
+    const dpr = window.devicePixelRatio || 1;
     const strokes = state.getActiveStrokes();
     const ctx = minimapCanvas.getContext('2d');
     const mw = minimapContainer.clientWidth;
     const mh = minimapContainer.clientHeight;
-    minimapCanvas.width = mw;
-    minimapCanvas.height = mh;
+    minimapCanvas.width = Math.floor(mw * dpr);
+    minimapCanvas.height = Math.floor(mh * dpr);
+    minimapCanvas.style.width = mw + 'px';
+    minimapCanvas.style.height = mh + 'px';
     
+    ctx.save();
+    ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, mw, mh);
     
     // Calculate content bounds
@@ -854,8 +859,7 @@ function updateMinimap() {
                  ctx.drawImage(img, dx, dy, dw, dh);
                  
                  if (r !== 0) {
-                     // Reset transform for next items
-                     ctx.setTransform(1, 0, 0, 1, 0, 0);
+                     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                  }
             }
         } else {
@@ -1048,10 +1052,10 @@ function updateMinimap() {
                  }
                  
                  ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight, vx, vy, vw, vh);
-                 
-                 if (r !== 0) {
-                     ctx.setTransform(1, 0, 0, 1, 0, 0);
-                 }
+                
+                if (r !== 0) {
+                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                }
             }
         }
         ctx.restore();
@@ -1110,6 +1114,8 @@ function updateMinimap() {
     minimapViewport.style.top = `${vy}px`;
     minimapViewport.style.width = `${vw}px`;
     minimapViewport.style.height = `${vh}px`;
+    
+    ctx.restore();
 }
 
 function toggleToolMenu(type) {
@@ -2743,6 +2749,11 @@ async function applyConfig(config) {
             state.pageBackgrounds[state.currentPageIndex] = config.whiteboard.defaultBgColor;
             document.documentElement.style.setProperty('--bg', config.whiteboard.defaultBgColor);
             ipcRenderer.send('annotate-set-background-color', config.whiteboard.defaultBgColor);
+        }
+        // Apply render mode
+        if (config.whiteboard.renderMode) {
+            const canvasModule = require('./canvas');
+            canvasModule.setRenderMode(config.whiteboard.renderMode);
         }
     }
     

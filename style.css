@@ -51,6 +51,7 @@ body {
   font-family: system-ui, sans-serif;
   user-select: none;
   background: var(--bg);
+  touch-action: none;
 }
 
 #canvas-layer {
@@ -62,6 +63,7 @@ body {
   z-index: 20; /* Top Layer for Writing/Lasso */
   cursor: crosshair;
   pointer-events: none; /* Default to pass-through */
+  touch-action: none;
 }
 
 .dom-object-wrapper {
@@ -149,6 +151,7 @@ body {
     /* border-right: 1px solid var(--border); */
     margin-right: 8px;
     font-size: 18px;
+    touch-action: none;
 }
 .toolbar-drag-handle:active {
     cursor: grabbing;
@@ -217,6 +220,10 @@ body {
   align-items: center;
   gap: 8px;
   color: var(--fg);
+}
+
+.slider-container input[type="range"] {
+  touch-action: none;
 }
 
 /* Edge Pan Buttons */
@@ -516,6 +523,8 @@ body {
   flex-direction: column;
   gap: 12px;
   padding-right: 4px;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .page-preview-item {
@@ -951,6 +960,7 @@ body {
   background-image: linear-gradient(var(--accent), var(--accent));
   background-size: 0% 100%;
   background-repeat: no-repeat;
+  touch-action: none;
 }
 
 .media-progress::-webkit-slider-thumb {
@@ -962,6 +972,7 @@ body {
   cursor: pointer;
   transition: transform 0.1s;
   box-shadow: 0 0 2px rgba(0,0,0,0.5);
+  touch-action: none;
 }
 
 .media-progress::-webkit-slider-thumb:hover {
@@ -998,6 +1009,7 @@ body {
   height: 100%;
   background: transparent;
   cursor: pointer;
+  touch-action: none;
 }
 
 /* Fullscreen Browser Layer */
@@ -1570,6 +1582,7 @@ input:checked + .slider:before {
     color: var(--muted);
     padding-bottom: 4px;
     border-bottom: 1px solid var(--border);
+    touch-action: none;
 }
 
 .minibar-content {

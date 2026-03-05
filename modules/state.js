@@ -1,4 +1,7 @@
 const state = {
+    variant: null,
+    persistKey: null,
+    
     // --- Whiteboard State ---
     whiteboard: {
         pages: [[]],
@@ -46,10 +49,17 @@ const state = {
     selectionBounds: null,
     originalSelectionStrokes: null,
     selectionHandles: [],
+    isPanning: false,
+    panStart: null,
+    panStartCamera: null,
+    shapeStart: null,
     
     // Theme State
     themeMode: 'system',
     themeColor: '#238f4a',
+
+    // Render Mode State
+    renderMode: 'canvas2d', // 'canvas2d' or 'webgpu'
 
     // Tool State
     currentTool: 'pen', 

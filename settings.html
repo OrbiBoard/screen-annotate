@@ -23,6 +23,7 @@
       font-family: "Microsoft YaHei", sans-serif;
       display: flex; flex-direction: column;
       height: 100vh; overflow: hidden;
+      touch-action: none;
     }
     .header {
       padding: 12px 16px;
@@ -232,6 +233,11 @@
     ::-webkit-scrollbar-thumb:hover {
       background: rgba(255, 255, 255, 0.4);
     }
+    
+    /* Touch support for sliders */
+    input[type="range"] {
+      touch-action: none;
+    }
   </style>
 </head>
 <body>
@@ -329,6 +335,16 @@
           <!-- Whiteboard Tab -->
           <div id="tab-whiteboard" class="tab-pane">
               <div class="section-title">白板设置</div>
+              <div class="form-group">
+                  <label>渲染模式</label>
+                  <select id="wb-render-mode">
+                      <option value="canvas2d">Canvas 2D (兼容模式)</option>
+                      <option value="webgpu">WebGPU (高性能)</option>
+                  </select>
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                      WebGPU 模式需要浏览器支持，性能更优但不兼容所有设备
+                  </div>
+              </div>
               <div class="form-group">
                   <label>默认背景色</label>
                   <div class="row" style="flex-wrap: wrap; gap: 8px;">
@@ -644,6 +660,7 @@
         if(wb.panAssist !== undefined) document.getElementById('wb-pan-assist').checked = wb.panAssist;
         if(wb.flowHint !== undefined) document.getElementById('wb-flow-hint').checked = wb.flowHint;
         if(wb.flowDuration) document.getElementById('wb-flow-duration').value = wb.flowDuration;
+        if(wb.renderMode) document.getElementById('wb-render-mode').value = wb.renderMode;
         if(wb.defaultBgColor) {
             document.getElementById('wb-default-bg-custom').value = wb.defaultBgColor;
             updateBgSwatchSelection(wb.defaultBgColor);
@@ -751,6 +768,7 @@
         };
         
         config.whiteboard = {
+            renderMode: document.getElementById('wb-render-mode').value,
             defaultBgColor: document.getElementById('wb-default-bg-custom').value,
             panAssist: document.getElementById('wb-pan-assist').checked,
             flowHint: document.getElementById('wb-flow-hint').checked,

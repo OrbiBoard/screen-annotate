@@ -133,6 +133,7 @@
     padding: 4px;
     display: flex;
     align-items: center;
+    touch-action: none;
 }
 
 .minibar-content {

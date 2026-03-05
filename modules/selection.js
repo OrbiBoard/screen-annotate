@@ -14,7 +14,7 @@ function getHistory() {
 
 const selectionToolbar = document.getElementById('selection-toolbar');
 const selectionOverlay = document.getElementById('selection-overlay');
-const selectionBoxDom = selectionOverlay.querySelector('.selection-box-dom');
+const selectionBoxDom = selectionOverlay ? selectionOverlay.querySelector('.selection-box-dom') : null;
 let selectionHandles = [];
 let activeMenu = 'none'; // 'none', 'rotation', 'transform', 'layer', 'adjust'
 let adjustMenuState = 'main'; // 'main', 'color', 'thickness'
@@ -197,8 +197,8 @@ function performLassoSelection() {
     showSelectionToolbar();
   } else {
     state.selectionBounds = null;
-    selectionToolbar.style.display = 'none';
-    selectionOverlay.style.display = 'none';
+    if (selectionToolbar) selectionToolbar.style.display = 'none';
+    if (selectionOverlay) selectionOverlay.style.display = 'none';
   }
 }
 
@@ -259,10 +259,13 @@ function updateSelectionBounds() {
         
         function showSelectionToolbar() {
   if (!state.selectionBounds) {
-      selectionToolbar.style.display = 'none';
-      selectionOverlay.style.display = 'none';
+      if (selectionToolbar) selectionToolbar.style.display = 'none';
+      if (selectionOverlay) selectionOverlay.style.display = 'none';
       return;
   }
+  
+  // Skip UI updates in embed mode (toolbar is hidden)
+  if (!selectionToolbar || !selectionOverlay || !selectionBoxDom) return;
   
   // Fix for Issue 6: Hide 'New Page Clone' in Screen Annotation mode
   const clonePageBtn = document.getElementById('btn-sel-clone-page');
@@ -798,6 +801,9 @@ function applyThicknessToSelection(thickness) {
       btn.onclick = onClick;
       return btn;
   }
+  
+  // Skip if elements don't exist (embed mode)
+  if (!selectionToolbar || !selectionBoxDom) return;
   
   // Position Toolbar
   selectionToolbar.style.display = 'flex';
@@ -1497,8 +1503,8 @@ function deleteSelection() {
   
   state.selectedStrokeIndices = [];
   state.selectionBounds = null;
-  selectionToolbar.style.display = 'none';
-  selectionOverlay.style.display = 'none';
+  if (selectionToolbar) selectionToolbar.style.display = 'none';
+  if (selectionOverlay) selectionOverlay.style.display = 'none';
   canvasModule.renderCanvas();
   getObjectsModule().updateDOMObjects();
 }

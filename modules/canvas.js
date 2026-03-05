@@ -2,25 +2,99 @@ const { getStroke } = require('perfect-freehand');
 const state = require('./state');
 const utils = require('./utils');
 const shapesModule = require('./shapes');
+const webgpuRenderer = require('./renderer-webgpu');
 
 const canvas = document.getElementById('canvas-layer');
 const ctx = canvas.getContext('2d');
 
+let webgpuInitialized = false;
+let webgpuAvailable = false;
+
+async function initRenderer() {
+    if (state.renderMode === 'webgpu' && !webgpuInitialized) {
+        webgpuAvailable = await webgpuRenderer.initWebGPU(canvas);
+        webgpuInitialized = true;
+        if (!webgpuAvailable) {
+            console.warn('[Canvas] WebGPU not available, falling back to Canvas2D');
+            state.renderMode = 'canvas2d';
+        }
+    }
+}
+
+function setRenderMode(mode) {
+    if (mode === state.renderMode) return;
+    
+    if (mode === 'webgpu') {
+        if (!webgpuInitialized) {
+            initRenderer().then(() => {
+                if (webgpuAvailable) {
+                    state.renderMode = 'webgpu';
+                    renderCanvas();
+                }
+            });
+        } else if (webgpuAvailable) {
+            state.renderMode = 'webgpu';
+            renderCanvas();
+        }
+    } else {
+        state.renderMode = 'canvas2d';
+        renderCanvas();
+    }
+}
+
+function getRenderMode() {
+    return state.renderMode;
+}
+
 function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  const { updateMinimap } = require('./ui');
+  const dpr = window.devicePixelRatio || 1;
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  
+  canvas.width = Math.floor(width * dpr);
+  canvas.height = Math.floor(height * dpr);
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
+  
+  const ctx2d = canvas.getContext('2d');
+  ctx2d.scale(dpr, dpr);
+  
   renderCanvas();
-  updateMinimap();
+  try {
+    const { updateMinimap } = require('./ui');
+    updateMinimap();
+  } catch (e) {
+    // Minimap not available in embed mode
+  }
 }
 
 function renderCanvas() {
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (state.renderMode === 'webgpu' && webgpuAvailable) {
+      const success = webgpuRenderer.renderCanvasWebGPU(canvas);
+      if (success) {
+          try {
+              const { updateMinimap } = require('./ui');
+              updateMinimap();
+          } catch (e) {}
+          return;
+      }
+  }
   
-  // Transform
-  const camera = state.getActiveCamera();
+  renderCanvas2D();
+}
+
+function renderCanvas2D() {
+  const dpr = window.devicePixelRatio || 1;
+  const ctx = canvas.getContext('2d');
+  
   ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+  
+  ctx.save();
+  
+  const camera = state.getActiveCamera();
   
   // Note: Canvas transform order is reverse of CSS?
   // CSS: translate(cx, cy) rotate(r) translate(-cx, -cy) translate(x, y) scale(z)
@@ -633,12 +707,13 @@ function fitCameraToContent() {
 function captureCanvas(options = {}) {
     const { area = 'viewport', includeBackground = true, includeInk = true } = options;
     
+    const dpr = window.devicePixelRatio || 1;
     const originalW = canvas.width;
     const originalH = canvas.height;
     const originalCam = { ...state.getActiveCamera() };
     
-    let width = originalW;
-    let height = originalH;
+    let width = window.innerWidth;
+    let height = window.innerHeight;
     let minX = 0;
     let minY = 0;
     
@@ -649,7 +724,7 @@ function captureCanvas(options = {}) {
         
         const strokes = state.getActiveStrokes();
         if (strokes.length === 0) {
-            minX = 0; minY = 0; maxX = originalW; maxY = originalH;
+            minX = 0; minY = 0; maxX = width; maxY = height;
         } else {
             strokes.forEach(stroke => {
                 if (stroke.type === 'pen' && stroke.points) {
@@ -665,7 +740,6 @@ function captureCanvas(options = {}) {
                     if (stroke.x + stroke.w > maxX) maxX = stroke.x + stroke.w;
                     if (stroke.y + stroke.h > maxY) maxY = stroke.y + stroke.h;
                 } else if (stroke.type === 'shape') {
-                     // Approximate
                      if (stroke.start) {
                          minX = Math.min(minX, stroke.start.x);
                          maxX = Math.max(maxX, stroke.start.x);
@@ -681,11 +755,9 @@ function captureCanvas(options = {}) {
                 }
             });
             
-            // If invalid bounds (e.g. no strokes found), default to screen
             if (minX === Infinity) {
-                minX = 0; minY = 0; maxX = originalW; maxY = originalH;
+                minX = 0; minY = 0; maxX = width; maxY = height;
             } else {
-                // Add some padding
                 const padding = 50;
                 minX -= padding;
                 minY -= padding;
@@ -697,15 +769,17 @@ function captureCanvas(options = {}) {
         width = Math.ceil(maxX - minX);
         height = Math.ceil(maxY - minY);
         
-        // Ensure positive dimensions
         width = Math.max(1, width);
         height = Math.max(1, height);
         
-        // Resize canvas
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
         
-        // Reset Camera to fit bounds at (0,0)
+        const ctx2d = canvas.getContext('2d');
+        ctx2d.scale(dpr, dpr);
+        
         const cam = state.getActiveCamera();
         cam.x = -minX;
         cam.y = -minY;
@@ -717,20 +791,18 @@ function captureCanvas(options = {}) {
     renderCanvas();
     if (!includeInk) state.hideStrokes = false;
     
-    // Draw Background if needed
     if (includeBackground && state.MODE !== 'annotate') {
-        const ctx = canvas.getContext('2d');
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-over';
+        const ctx2d = canvas.getContext('2d');
+        ctx2d.save();
+        ctx2d.globalCompositeOperation = 'destination-over';
         const bg = state.pageBackgrounds[state.currentPageIndex] || '#071a12';
-        ctx.fillStyle = bg;
-        ctx.fillRect(0, 0, width, height);
-        ctx.restore();
+        ctx2d.fillStyle = bg;
+        ctx2d.fillRect(0, 0, width, height);
+        ctx2d.restore();
     }
     
     const dataUrl = canvas.toDataURL('image/png');
     
-    // Restore
     canvas.width = originalW;
     canvas.height = originalH;
     Object.assign(state.getActiveCamera(), originalCam);
@@ -773,5 +845,8 @@ module.exports = {
     performEraserAction,
     fitCameraToContent,
     autoPanOnEdge,
-    captureCanvas
+    captureCanvas,
+    initRenderer,
+    setRenderMode,
+    getRenderMode
 };

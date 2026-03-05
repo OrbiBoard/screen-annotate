@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小黑板</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+    .blackboard-container {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    #canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+    }
+    .toolbar {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      padding: 6px 10px;
+      background: rgba(0, 0, 0, 0.6);
+      border-radius: 20px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .blackboard-container:hover .toolbar {
+      opacity: 1;
+    }
+    .toolbar button {
+      width: 28px;
+      height: 28px;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .toolbar button:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    .toolbar button.active {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .color-btn {
+      width: 20px !important;
+      height: 20px !important;
+      border: 2px solid rgba(255,255,255,0.3) !important;
+    }
+    .color-btn.active {
+      border-color: #fff !important;
+      transform: scale(1.1);
+    }
+    .separator {
+      width: 1px;
+      height: 20px;
+      background: rgba(255,255,255,0.2);
+      margin: 4px 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="blackboard-container">
+    <canvas id="canvas"></canvas>
+    <div class="toolbar">
+      <button class="color-btn active" data-color="#ffffff" style="background:#ffffff;"></button>
+      <button class="color-btn" data-color="#ff4d4f" style="background:#ff4d4f;"></button>
+      <button class="color-btn" data-color="#fadb14" style="background:#fadb14;"></button>
+      <button class="color-btn" data-color="#52c41a" style="background:#52c41a;"></button>
+      <button class="color-btn" data-color="#1890ff" style="background:#1890ff;"></button>
+      <div class="separator"></div>
+      <button id="btn-eraser" title="橡皮擦">✕</button>
+      <button id="btn-clear" title="清空">🗑</button>
+    </div>
+  </div>
+  <script>
+    const { ipcRenderer } = require('electron');
+    
+    let config = {
+      persistKey: 'blackboard-default',
+      backgroundColor: '#1a1a2e',
+      strokeColor: '#ffffff',
+      strokeWidth: 3
+    };
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.querySelector('.blackboard-container');
+    
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+    let strokes = [];
+    let currentStroke = null;
+    let isEraser = false;
+
+    function resizeCanvas() {
+      const rect = container.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+      ctx.scale(dpr, dpr);
+      redraw();
+    }
+
+    function applyConfig(cfg) {
+      if (!cfg) return;
+      config = { ...config, ...cfg };
+      
+      if (config.backgroundColor) {
+        container.style.backgroundColor = config.backgroundColor;
+      }
+      
+      const oldKey = config.persistKey;
+      if (cfg.persistKey && cfg.persistKey !== oldKey) {
+        loadPersistedStrokes();
+      }
+    }
+
+    function getPointerPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX || e.touches?.[0]?.clientX || 0) - rect.left;
+      const y = (e.clientY || e.touches?.[0]?.clientY || 0) - rect.top;
+      return { x, y };
+    }
+
+    function startDrawing(e) {
+      e.preventDefault();
+      isDrawing = true;
+      const pos = getPointerPos(e);
+      lastX = pos.x;
+      lastY = pos.y;
+      
+      if (isEraser) {
+        eraseAt(pos.x, pos.y);
+      } else {
+        currentStroke = {
+          color: config.strokeColor,
+          width: config.strokeWidth,
+          points: [{ x: pos.x, y: pos.y }]
+        };
+      }
+    }
+
+    function draw(e) {
+      if (!isDrawing) return;
+      e.preventDefault();
+      
+      const pos = getPointerPos(e);
+      
+      if (isEraser) {
+        eraseAt(pos.x, pos.y);
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.strokeStyle = currentStroke.color;
+        ctx.lineWidth = currentStroke.width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+        
+        currentStroke.points.push({ x: pos.x, y: pos.y });
+      }
+      
+      lastX = pos.x;
+      lastY = pos.y;
+    }
+
+    function stopDrawing() {
+      if (isDrawing && currentStroke && currentStroke.points.length > 1) {
+        strokes.push(currentStroke);
+        saveStrokes();
+      }
+      isDrawing = false;
+      currentStroke = null;
+    }
+
+    function eraseAt(x, y) {
+      const eraseRadius = 20;
+      let changed = false;
+      
+      strokes = strokes.filter(stroke => {
+        const shouldKeep = !stroke.points.some(p => {
+          const dist = Math.sqrt((p.x - x) ** 2 + (p.y - y) ** 2);
+          return dist < eraseRadius;
+        });
+        if (!shouldKeep) changed = true;
+        return shouldKeep;
+      });
+      
+      if (changed) {
+        redraw();
+        saveStrokes();
+      }
+    }
+
+    function redraw() {
+      const rect = container.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      
+      strokes.forEach(stroke => {
+        if (stroke.points.length < 2) return;
+        
+        ctx.beginPath();
+        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+        
+        for (let i = 1; i < stroke.points.length; i++) {
+          ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+        }
+        
+        ctx.strokeStyle = stroke.color;
+        ctx.lineWidth = stroke.width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+      });
+    }
+
+    function clearCanvas() {
+      strokes = [];
+      redraw();
+      saveStrokes();
+    }
+
+    function saveStrokes() {
+      try {
+        localStorage.setItem('blackboard.strokes.' + config.persistKey, JSON.stringify(strokes));
+      } catch (e) {}
+    }
+
+    function loadPersistedStrokes() {
+      try {
+        const raw = localStorage.getItem('blackboard.strokes.' + config.persistKey);
+        if (raw) {
+          strokes = JSON.parse(raw);
+          redraw();
+        }
+      } catch (e) {}
+    }
+
+    function setColor(color) {
+      config.strokeColor = color;
+      isEraser = false;
+      document.getElementById('btn-eraser').classList.remove('active');
+      document.querySelectorAll('.color-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.color === color);
+      });
+    }
+
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseleave', stopDrawing);
+    
+    canvas.addEventListener('touchstart', startDrawing, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchend', stopDrawing);
+
+    document.querySelectorAll('.color-btn').forEach(btn => {
+      btn.addEventListener('click', () => setColor(btn.dataset.color));
+    });
+
+    document.getElementById('btn-eraser').addEventListener('click', () => {
+      isEraser = !isEraser;
+      document.getElementById('btn-eraser').classList.toggle('active', isEraser);
+      document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', clearCanvas);
+
+    ipcRenderer.on('config-updated', (event, newConfig) => {
+      applyConfig(newConfig);
+    });
+
+    window.addEventListener('resize', resizeCanvas);
+
+    applyConfig(config);
+    resizeCanvas();
+    loadPersistedStrokes();
+  </script>
+</body>
+</html>

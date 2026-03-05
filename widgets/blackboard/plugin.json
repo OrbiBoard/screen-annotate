@@ -1,0 +1,28 @@
+{
+  "id": "blackboard",
+  "name": "小黑板",
+  "icon": "ri-blackboard-line",
+  "version": "1.0.0",
+  "type": "component",
+  "author": "OrbiBoard",
+  "entry": "index.html",
+  "description": "嵌入式小黑板组件，支持自由绘制",
+  "group": "desktop_widget",
+  "recommendedSize": {
+    "width": 400,
+    "height": 300
+  },
+  "configSchema": {
+    "persistKey": {
+      "type": "text",
+      "label": "持久化键 (Persist Key)",
+      "default": "blackboard-default",
+      "desc": "用于保存画板内容的唯一标识"
+    },
+    "backgroundColor": {
+      "type": "color",
+      "label": "背景颜色 (Background)",
+      "default": "#1a1a2e"
+    }
+  }
+}
