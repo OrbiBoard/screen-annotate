@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>批注插件设置</title>
-  <link rel="stylesheet" href="../renderer/remixicon-local.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css">
   <style>
     :root {
       --bg-color: #080808;
@@ -562,6 +562,13 @@
         
         const tools = config.toolbar[mode] || [];
         
+        // 确保所有工具都有默认值
+        if (tools.length === 0) {
+            // 如果工具列表为空，使用默认配置
+            config.toolbar[mode] = JSON.parse(JSON.stringify(TOOLS_DEF[mode] || []));
+            config.toolbar[mode].forEach(t => t.visible = true);
+        }
+        
         tools.forEach((tool, idx) => {
             const div = document.createElement('div');
             div.className = 'list-item';
@@ -625,7 +632,85 @@
             if (res) {
                 config = { ...config, ...res }; // Merge defaults
             }
-        } catch(e) { console.error(e); }
+        } catch(e) { 
+            console.error(e); 
+            // 配置加载失败，使用默认配置
+            config = {
+                buttons: [],
+                toolbar: null,
+                writingPreferences: {},
+                whiteboard: {},
+                autoSave: {}
+            };
+        }
+        
+        // 确保 buttons 数组存在且包含默认按钮
+        if (!config.buttons || config.buttons.length === 0) {
+            config.buttons = [
+                {
+                    label: '设置',
+                    icon: 'ri-settings-3-line',
+                    actionType: 'openSettings',
+                    actionPayload: {},
+                    locked: true
+                },
+                {
+                    label: '刷新',
+                    icon: 'ri-refresh-line',
+                    actionType: 'key',
+                    actionPayload: { key: 'F5' },
+                    locked: true
+                }
+            ];
+        } else {
+            // 检查是否已有设置和刷新按钮，如果没有则添加
+            const hasSettings = config.buttons.some(btn => btn.actionType === 'openSettings');
+            const hasRefresh = config.buttons.some(btn => btn.actionType === 'key' && btn.actionPayload?.key === 'F5');
+            
+            if (!hasSettings) {
+                config.buttons.unshift({
+                    label: '设置',
+                    icon: 'ri-settings-3-line',
+                    actionType: 'openSettings',
+                    actionPayload: {},
+                    locked: true
+                });
+            }
+            
+            if (!hasRefresh) {
+                // 确保刷新按钮在设置按钮之后
+                const settingsIndex = config.buttons.findIndex(btn => btn.actionType === 'openSettings');
+                if (settingsIndex >= 0) {
+                    config.buttons.splice(settingsIndex + 1, 0, {
+                        label: '刷新',
+                        icon: 'ri-refresh-line',
+                        actionType: 'key',
+                        actionPayload: { key: 'F5' },
+                        locked: true
+                    });
+                } else {
+                    config.buttons.unshift({
+                        label: '刷新',
+                        icon: 'ri-refresh-line',
+                        actionType: 'key',
+                        actionPayload: { key: 'F5' },
+                        locked: true
+                    });
+                }
+            }
+        }
+        
+        // 确保工具栏配置存在
+        if (!config.toolbar) {
+            config.toolbar = JSON.parse(JSON.stringify(TOOLS_DEF));
+            // Set default visible
+            Object.keys(config.toolbar).forEach(mode => {
+                if(Array.isArray(config.toolbar[mode])) {
+                    config.toolbar[mode].forEach(t => t.visible = true);
+                }
+            });
+            config.toolbar.showDragHandle = true;
+        }
         
         // Populate Fields (Always run)
         populateUI();

@@ -2549,13 +2549,21 @@ async function loadConfig() {
         } else {
             // Defaults
             moreConfig = [
-                // { label: '设置', icon: 'ri-settings-3-line', actionType: 'openSettings', actionPayload: {}, locked: true }, // Removed to avoid duplication
+                { label: '设置', icon: 'ri-settings-3-line', actionType: 'openSettings', actionPayload: {}, locked: true },
+                { label: '刷新', icon: 'ri-refresh-line', actionType: 'key', actionPayload: { key: 'F5' }, locked: true },
                 { label: '关闭', icon: 'ri-close-circle-line', actionType: 'close', actionPayload: {}, locked: true },
                 { label: '计时', icon: 'ri-timer-line', actionType: 'plugin', actionPayload: { pluginId: 'clock-timer', fn: 'openTimer' } }
             ];
         }
     } catch (e) {
         console.error('Failed to load config:', e);
+        // 加载失败时使用默认配置
+        moreConfig = [
+            { label: '设置', icon: 'ri-settings-3-line', actionType: 'openSettings', actionPayload: {}, locked: true },
+            { label: '刷新', icon: 'ri-refresh-line', actionType: 'key', actionPayload: { key: 'F5' }, locked: true },
+            { label: '关闭', icon: 'ri-close-circle-line', actionType: 'close', actionPayload: {}, locked: true },
+            { label: '计时', icon: 'ri-timer-line', actionType: 'plugin', actionPayload: { pluginId: 'clock-timer', fn: 'openTimer' } }
+        ];
     }
 }
 
@@ -2705,12 +2713,20 @@ async function applyConfig(config) {
     }
     
     // More Buttons
-    if (config.buttons) {
+    if (config.buttons && config.buttons.length > 0) {
         moreConfig = config.buttons;
-        const morePopup = document.getElementById('more-popup');
-        if (morePopup && morePopup.style.display !== 'none') {
-            renderMorePopup();
-        }
+    } else {
+        // 确保至少有默认按钮
+        moreConfig = [
+            { label: '设置', icon: 'ri-settings-3-line', actionType: 'openSettings', actionPayload: {}, locked: true },
+            { label: '刷新', icon: 'ri-refresh-line', actionType: 'key', actionPayload: { key: 'F5' }, locked: true },
+            { label: '关闭', icon: 'ri-close-circle-line', actionType: 'close', actionPayload: {}, locked: true },
+            { label: '计时', icon: 'ri-timer-line', actionType: 'plugin', actionPayload: { pluginId: 'clock-timer', fn: 'openTimer' } }
+        ];
+    }
+    const morePopup = document.getElementById('more-popup');
+    if (morePopup && morePopup.style.display !== 'none') {
+        renderMorePopup();
     }
     
     // Writing Preferences

@@ -27,6 +27,17 @@ state.persistKey = persistKey;
 
 let persistenceDebounceTimer = null;
 
+// 输入预测和事件优化
+let lastPoints = [];
+let predictionTimer = null;
+let lastRenderTime = 0;
+const renderThreshold = 16; // ~60fps
+let renderScheduled = false;
+let lastPredictedPoint = null;
+
+// 暴露预测点到全局作用域，供 canvas.js 使用
+window.lastPredictedPoint = null;
+
 function triggerPersistence() {
     if (!persistKey) return;
     
@@ -91,11 +102,27 @@ function loadPersistedStrokes() {
             ipcRenderer.sendToHost('annotate-load', { key: persistKey });
         } catch (e) {}
     } else {
-        window.parent.postMessage({
-            type: 'annotate-load',
-            key: persistKey
+        window.parent.postMessage({ 
+            type: 'annotate-load', 
+            key: persistKey 
         }, '*');
     }
+}
+
+// 输入预测函数
+function predictNextPoint(currentPoint) {
+    if (lastPoints.length < 2) return currentPoint;
+    
+    const p1 = lastPoints[lastPoints.length - 1];
+    const p2 = lastPoints[lastPoints.length - 2];
+    const dx = p1.x - p2.x;
+    const dy = p1.y - p2.y;
+    
+    // 基于速度和方向预测下一个点
+    const predictedX = currentPoint.x + dx * 0.7;
+    const predictedY = currentPoint.y + dy * 0.7;
+    
+    return { x: predictedX, y: predictedY };
 }
 
 window.addEventListener('message', (event) => {
@@ -875,11 +902,20 @@ function initUI() {
   ui.updatePageIndicator();
   objects.updateObjectInteraction(); 
 
-  // Listen for theme config
+  // Listen for theme config (legacy)
   ipcRenderer.on('annotate-theme-config-reply', (event, { mode, color }) => {
       state.themeMode = mode;
       state.themeColor = color;
       themeModule.applyTheme(mode, color);
+  });
+  
+  // Listen for unified theme changes
+  ipcRenderer.on('sys:theme-changed', (_e, theme) => {
+      if (theme) {
+          state.themeMode = theme.mode || state.themeMode;
+          state.themeColor = theme.color || state.themeColor;
+          themeModule.applyTheme(state.themeMode, state.themeColor);
+      }
   });
   
   // Listen for external actions
@@ -1600,16 +1636,44 @@ canvasModule.canvas.addEventListener('pointermove', (e) => {
   }
 
   if (state.currentTool === 'pen' || state.currentTool === 'eraser') {
+    const currentTime = performance.now();
+    
     if (state.currentTool === 'eraser') {
         const point = utils.getPoint(e);
         canvasModule.performEraserAction(point);
         checkEdgePan(point);
+        
+        if (currentTime - lastRenderTime > renderThreshold) {
+            canvasModule.renderCanvas();
+            lastRenderTime = currentTime;
+        }
     } else {
         const point = utils.getPoint(e);
         state.currentPoints.push(point);
+        lastPoints.push(point);
+        
+        // 限制历史点数量
+        if (lastPoints.length > 10) {
+            lastPoints.shift();
+        }
+        
+        // 预测下一个点
+        const predictedPoint = predictNextPoint(point);
+        lastPredictedPoint = predictedPoint;
+        window.lastPredictedPoint = predictedPoint;
+        
         checkEdgePan(point);
+        
+        // 使用 requestAnimationFrame 优化渲染
+        if (!renderScheduled) {
+            renderScheduled = true;
+            requestAnimationFrame(() => {
+                canvasModule.renderCanvas();
+                renderScheduled = false;
+                lastRenderTime = performance.now();
+            });
+        }
     }
-    canvasModule.renderCanvas();
   }
 });
 
@@ -1872,6 +1936,12 @@ canvasModule.canvas.addEventListener('pointerup', (e) => {
     canvasModule.renderCanvas();
     ui.renderToolbar(handleToolClick);
   }
+  
+  // 清理输入预测相关变量
+  lastPoints = [];
+  lastPredictedPoint = null;
+  window.lastPredictedPoint = null;
+  renderScheduled = false;
 });
 
 function performUndo() {

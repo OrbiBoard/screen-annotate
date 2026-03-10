@@ -59,7 +59,7 @@ const state = {
     themeColor: '#238f4a',
 
     // Render Mode State
-    renderMode: 'canvas2d', // 'canvas2d' or 'webgpu'
+    renderMode: 'webgpu', // 'canvas2d' or 'webgpu'
 
     // Tool State
     currentTool: 'pen', 

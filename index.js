@@ -52,6 +52,8 @@ module.exports = {
                 if (res.ok) {
                     event.reply('annotate-theme-config-reply', { mode: res.mode, color: res.color });
                 }
+            } else {
+                event.reply('annotate-theme-config-reply', { mode: 'system', color: '#238f4a' });
             }
         });
 

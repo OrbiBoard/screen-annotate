@@ -296,8 +296,16 @@ function renderCanvas2D() {
   // 2. Render Current Drawing Stroke (Pen Preview)
   if (state.isDrawing) {
       if (state.currentTool === 'pen') {
+        // 复制当前点数组
+        let points = [...state.currentPoints];
+        
+        // 检查是否有预测点，如果有则添加到数组中
+        if (typeof window.lastPredictedPoint !== 'undefined' && window.lastPredictedPoint) {
+          points.push(window.lastPredictedPoint);
+        }
+        
         const previewStroke = {
-          points: state.currentPoints,
+          points: points,
           color: state.penColor,
           size: state.penSize,
           taper: state.penTaper

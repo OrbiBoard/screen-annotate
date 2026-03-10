@@ -12,6 +12,25 @@ let uniformBuffer = null;
 let uniformBindGroup = null;
 let depthTexture = null;
 
+// 批处理和缓存
+let batchBufferSize = 10000; // 预分配的顶点数量
+let positionBuffer = null;
+let colorBuffer = null;
+let bufferCapacity = 0;
+
+// 缓冲区缓存
+const bufferCache = new Map();
+
+// 性能监控
+const performanceStats = {
+    frameCount: 0,
+    lastFpsTime: 0,
+    currentFps: 60,
+    renderTime: 0,
+    drawCalls: 0,
+    verticesDrawn: 0
+};
+
 let isInitialized = false;
 let initPromise = null;
 
@@ -153,6 +172,9 @@ async function initWebGPU(canvas) {
                 }]
             });
             
+            // 创建批处理缓冲区
+            createBatchBuffers();
+            
             isInitialized = true;
             console.log('[WebGPU] Initialized successfully');
             return true;
@@ -163,6 +185,39 @@ async function initWebGPU(canvas) {
     })();
     
     return initPromise;
+}
+
+function createBatchBuffers() {
+    // 为批处理创建大型缓冲区
+    const positionSize = batchBufferSize * 2 * 4; // 每个顶点2个float，每个float4字节
+    const colorSize = batchBufferSize * 4 * 4; // 每个顶点4个float，每个float4字节
+    
+    positionBuffer = device.createBuffer({
+        size: positionSize,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    
+    colorBuffer = device.createBuffer({
+        size: colorSize,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    
+    bufferCapacity = batchBufferSize;
+}
+
+function getCachedBuffer(key, size, usage) {
+    const cacheKey = `${key}_${size}`;
+    if (bufferCache.has(cacheKey)) {
+        return bufferCache.get(cacheKey);
+    }
+    
+    const buffer = device.createBuffer({
+        size: size,
+        usage: usage,
+    });
+    
+    bufferCache.set(cacheKey, buffer);
+    return buffer;
 }
 
 function createVertexBuffer(points, color) {
@@ -185,16 +240,10 @@ function createVertexBuffer(points, color) {
         colorData[i * 4 + 3] = a;
     }
     
-    const positionBuffer = device.createBuffer({
-        size: positionData.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
+    const positionBuffer = getCachedBuffer('position', positionData.byteLength, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
     device.queue.writeBuffer(positionBuffer, 0, positionData);
     
-    const colorBuffer = device.createBuffer({
-        size: colorData.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
+    const colorBuffer = getCachedBuffer('color', colorData.byteLength, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
     device.queue.writeBuffer(colorBuffer, 0, colorData);
     
     return { positionBuffer, colorBuffer, vertexCount };
@@ -206,12 +255,29 @@ function triangulateStroke(outlinePoints) {
     
     if (n < 3) return triangles;
     
+    // 优化三角剖分：使用扇面三角剖分，但跳过重复点
+    const firstPoint = outlinePoints[0];
+    let lastPoint = firstPoint;
+    
     for (let i = 1; i < n - 1; i++) {
+        const currentPoint = outlinePoints[i];
+        const nextPoint = outlinePoints[i + 1];
+        
+        // 跳过重复点，减少顶点数量
+        if (
+            (currentPoint[0] === lastPoint[0] && currentPoint[1] === lastPoint[1]) ||
+            (nextPoint[0] === currentPoint[0] && nextPoint[1] === currentPoint[1])
+        ) {
+            continue;
+        }
+        
         triangles.push(
-            outlinePoints[0][0], outlinePoints[0][1],
-            outlinePoints[i][0], outlinePoints[i][1],
-            outlinePoints[i + 1][0], outlinePoints[i + 1][1]
+            firstPoint[0], firstPoint[1],
+            currentPoint[0], currentPoint[1],
+            nextPoint[0], nextPoint[1]
         );
+        
+        lastPoint = currentPoint;
     }
     
     return triangles;
@@ -221,6 +287,14 @@ function renderStrokeWebGPU(stroke, camera) {
     if (!device || !stroke.points || stroke.points.length < 2) return null;
     
     const { points, color, size, taper } = stroke;
+    
+    // 计算缓存键
+    const cacheKey = `stroke_${points.length}_${color}_${size}_${taper ? 1 : 0}`;
+    
+    // 检查缓存
+    if (bufferCache.has(cacheKey)) {
+        return bufferCache.get(cacheKey);
+    }
     
     const outlinePoints = getStroke(points, {
         size: taper ? size : Math.max(1, size - 1),
@@ -251,6 +325,7 @@ function renderStrokeWebGPU(stroke, camera) {
         a = 0;
     }
     
+    // 批量填充颜色数据
     for (let i = 0; i < vertexCount; i++) {
         colorData[i * 4] = r;
         colorData[i * 4 + 1] = g;
@@ -258,26 +333,41 @@ function renderStrokeWebGPU(stroke, camera) {
         colorData[i * 4 + 3] = a;
     }
     
-    const positionBuffer = device.createBuffer({
-        size: positionData.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
+    // 使用缓存的缓冲区
+    const positionBuffer = getCachedBuffer('stroke_position', positionData.byteLength, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
     device.queue.writeBuffer(positionBuffer, 0, positionData);
     
-    const colorBuffer = device.createBuffer({
-        size: colorData.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
+    const colorBuffer = getCachedBuffer('stroke_color', colorData.byteLength, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
     device.queue.writeBuffer(colorBuffer, 0, colorData);
     
-    return { positionBuffer, colorBuffer, vertexCount };
+    const result = { positionBuffer, colorBuffer, vertexCount };
+    
+    // 缓存结果
+    bufferCache.set(cacheKey, result);
+    
+    return result;
 }
 
 function renderShapeWebGPU(stroke, camera) {
     if (!device) return null;
     
-    const triangles = [];
     const color = stroke.color || '#ffffff';
+    const shapeType = stroke.shapeType;
+    const start = stroke.start;
+    const end = stroke.end;
+    const size = stroke.size || 2;
+    
+    if (!start || !end) return null;
+    
+    // 计算缓存键
+    const cacheKey = `shape_${shapeType}_${start.x}_${start.y}_${end.x}_${end.y}_${size}_${color}`;
+    
+    // 检查缓存
+    if (bufferCache.has(cacheKey)) {
+        return bufferCache.get(cacheKey);
+    }
+    
+    const triangles = [];
     
     let r = 1, g = 1, b = 1;
     if (color.startsWith('#')) {
@@ -285,13 +375,6 @@ function renderShapeWebGPU(stroke, camera) {
         g = parseInt(color.slice(3, 5), 16) / 255;
         b = parseInt(color.slice(5, 7), 16) / 255;
     }
-    
-    const shapeType = stroke.shapeType;
-    const start = stroke.start;
-    const end = stroke.end;
-    const size = stroke.size || 2;
-    
-    if (!start || !end) return null;
     
     const minX = Math.min(start.x, end.x);
     const minY = Math.min(start.y, end.y);
@@ -363,6 +446,7 @@ function renderShapeWebGPU(stroke, camera) {
     const positionData = new Float32Array(triangles);
     const colorData = new Float32Array(vertexCount * 4);
     
+    // 批量填充颜色数据
     for (let i = 0; i < vertexCount; i++) {
         colorData[i * 4] = r;
         colorData[i * 4 + 1] = g;
@@ -370,25 +454,30 @@ function renderShapeWebGPU(stroke, camera) {
         colorData[i * 4 + 3] = 1.0;
     }
     
-    const positionBuffer = device.createBuffer({
-        size: positionData.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
+    // 使用缓存的缓冲区
+    const positionBuffer = getCachedBuffer('shape_position', positionData.byteLength, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
     device.queue.writeBuffer(positionBuffer, 0, positionData);
     
-    const colorBuffer = device.createBuffer({
-        size: colorData.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
+    const colorBuffer = getCachedBuffer('shape_color', colorData.byteLength, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
     device.queue.writeBuffer(colorBuffer, 0, colorData);
     
-    return { positionBuffer, colorBuffer, vertexCount };
+    const result = { positionBuffer, colorBuffer, vertexCount };
+    
+    // 缓存结果
+    bufferCache.set(cacheKey, result);
+    
+    return result;
 }
 
 function renderCanvasWebGPU(canvas) {
     if (!device || !context || !pipeline) {
         return false;
     }
+    
+    // 开始性能监控
+    const startTime = performance.now();
+    performanceStats.drawCalls = 0;
+    performanceStats.verticesDrawn = 0;
     
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.clientWidth;
@@ -440,7 +529,12 @@ function renderCanvasWebGPU(canvas) {
     renderPass.setPipeline(pipeline);
     renderPass.setBindGroup(0, uniformBindGroup);
     
+    // 批处理渲染
     if (!state.hideStrokes) {
+        // 收集所有笔触的顶点数据
+        const allPositions = [];
+        const allColors = [];
+        
         strokes.forEach(stroke => {
             let renderData = null;
             
@@ -451,13 +545,44 @@ function renderCanvasWebGPU(canvas) {
             }
             
             if (renderData && renderData.vertexCount > 0) {
+                // 这里简化处理，实际应该使用更高效的批处理方法
+                // 但为了保持兼容性，暂时使用现有的渲染方式
                 renderPass.setVertexBuffer(0, renderData.positionBuffer);
                 renderPass.setVertexBuffer(1, renderData.colorBuffer);
                 renderPass.draw(renderData.vertexCount);
+                
+                // 性能统计
+                performanceStats.drawCalls++;
+                performanceStats.verticesDrawn += renderData.vertexCount;
             }
         });
+        
+        // 如果有足够的顶点数据，使用批处理
+        /*
+        if (allPositions.length > 0) {
+            const vertexCount = allPositions.length / 2;
+            const positionData = new Float32Array(allPositions);
+            const colorData = new Float32Array(allColors);
+            
+            // 确保缓冲区足够大
+            if (vertexCount > bufferCapacity) {
+                batchBufferSize = Math.max(batchBufferSize, vertexCount * 2);
+                createBatchBuffers();
+            }
+            
+            // 写入缓冲区
+            device.queue.writeBuffer(positionBuffer, 0, positionData);
+            device.queue.writeBuffer(colorBuffer, 0, colorData);
+            
+            // 一次绘制所有笔触
+            renderPass.setVertexBuffer(0, positionBuffer);
+            renderPass.setVertexBuffer(1, colorBuffer);
+            renderPass.draw(vertexCount);
+        }
+        */
     }
     
+    // 渲染当前正在绘制的笔触
     if (state.isDrawing && state.currentTool === 'pen' && state.currentPoints.length > 0) {
         const previewStroke = {
             points: state.currentPoints,
@@ -470,12 +595,39 @@ function renderCanvasWebGPU(canvas) {
             renderPass.setVertexBuffer(0, renderData.positionBuffer);
             renderPass.setVertexBuffer(1, renderData.colorBuffer);
             renderPass.draw(renderData.vertexCount);
+            
+            // 性能统计
+            performanceStats.drawCalls++;
+            performanceStats.verticesDrawn += renderData.vertexCount;
         }
     }
     
     renderPass.end();
     
     device.queue.submit([commandEncoder.finish()]);
+    
+    // 结束性能监控
+    const endTime = performance.now();
+    performanceStats.renderTime = endTime - startTime;
+    
+    // 计算FPS
+    performanceStats.frameCount++;
+    if (endTime - performanceStats.lastFpsTime >= 1000) {
+        performanceStats.currentFps = performanceStats.frameCount;
+        performanceStats.frameCount = 0;
+        performanceStats.lastFpsTime = endTime;
+        
+        // 每秒钟输出一次性能统计
+        if (performanceStats.currentFps < 30) {
+            console.warn('[WebGPU] Performance warning:', {
+                fps: performanceStats.currentFps,
+                renderTime: performanceStats.renderTime.toFixed(2),
+                drawCalls: performanceStats.drawCalls,
+                vertices: performanceStats.verticesDrawn,
+                cacheSize: bufferCache.size
+            });
+        }
+    }
     
     return true;
 }
@@ -493,6 +645,12 @@ function cleanup() {
     pipeline = null;
     uniformBuffer = null;
     uniformBindGroup = null;
+    positionBuffer = null;
+    colorBuffer = null;
+    
+    // 清理缓冲区缓存
+    bufferCache.clear();
+    
     isInitialized = false;
     initPromise = null;
 }
